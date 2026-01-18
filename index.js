@@ -1,6 +1,9 @@
+
+
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const authRoutes = require('./routes/authRoutes'); // <--- IMPORT THIS
 const Product = require('./models/Product');
 
 const app = express();
@@ -13,12 +16,14 @@ mongoose.connect(MONGO_URI)
   .then(() => console.log('MongoDB Connected'))
   .catch(err => console.error(err));
 
-// API ROUTES
+// USE ROUTES
+app.use('/api/auth', authRoutes); // <--- ADD THIS LINE
+
 app.get('/api/products', async (req, res) => {
+  // ... (Keep your existing product code here)
   const { category } = req.query;
   let query = {};
   if (category && category !== 'All') query.category = category;
-  
   try {
     const products = await Product.find(query);
     res.json(products);
@@ -28,4 +33,4 @@ app.get('/api/products', async (req, res) => {
 });
 
 const PORT = 5000;
-app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
