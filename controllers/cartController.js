@@ -1,20 +1,18 @@
 const User = require('../models/User');
 
-/**
- * @desc    Add item / Increase quantity
- * @route   POST /api/cart/add
- */
-exports.addToCart = async (req, res) => {
+// --- 1. ADD TO CART ---
+const addToCart = async (req, res) => {
   try {
-    const { productId, name, price, image } = req.body;
+    const { productId, name, price, image, quantity } = req.body;
+    const qtyToAdd = Number(quantity) || 1;
     const user = await User.findById(req.user._id);
 
     const existingItem = user.cart.find(item => item.product.toString() === productId);
 
     if (existingItem) {
-      existingItem.quantity += 1;
+      existingItem.quantity += qtyToAdd;
     } else {
-      user.cart.push({ product: productId, name, price, image, quantity: 1 });
+      user.cart.push({ product: productId, name, price, image, quantity: qtyToAdd });
     }
 
     await user.save();
@@ -24,15 +22,11 @@ exports.addToCart = async (req, res) => {
   }
 };
 
-/**
- * @desc    Decrease quantity / Remove if 1
- * @route   POST /api/cart/decrease
- */
-exports.decreaseQuantity = async (req, res) => {
+// --- 2. DECREASE QUANTITY ---
+const decreaseQuantity = async (req, res) => {
   try {
     const { productId } = req.body;
     const user = await User.findById(req.user._id);
-
     const existingItem = user.cart.find(item => item.product.toString() === productId);
 
     if (existingItem) {
@@ -49,11 +43,8 @@ exports.decreaseQuantity = async (req, res) => {
   }
 };
 
-/**
- * @desc    Remove item entirely
- * @route   DELETE /api/cart/remove/:id
- */
-exports.removeFromCart = async (req, res) => {
+// --- 3. REMOVE FROM CART ---
+const removeFromCart = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     user.cart = user.cart.filter(item => item.product.toString() !== req.params.id);
@@ -64,11 +55,8 @@ exports.removeFromCart = async (req, res) => {
   }
 };
 
-/**
- * @desc    Clear all items
- * @route   DELETE /api/cart/clear
- */
-exports.clearCart = async (req, res) => {
+// --- 4. CLEAR CART ---
+const clearCart = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     user.cart = []; 
@@ -77,4 +65,12 @@ exports.clearCart = async (req, res) => {
   } catch (error) {
     res.status(500).json({ message: "Clear failed", error: error.message });
   }
+};
+
+// --- THE EXPORT BLOCK ---
+module.exports = {
+  addToCart,
+  decreaseQuantity,
+  removeFromCart,
+  clearCart
 };

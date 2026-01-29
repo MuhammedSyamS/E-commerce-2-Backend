@@ -144,3 +144,84 @@ exports.loginUser = async (req, res) => {
     res.status(500).json({ message: "LOGIN FAILED: SERVER ERROR" });
   }
 };
+
+// --- 4. FORGOT PASSWORD: SEND OTP ---
+exports.forgotPasswordOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) return res.status(400).json({ message: "EMAIL IS REQUIRED" });
+
+    const emailLower = email.toLowerCase().trim();
+    
+    // Check if user exists
+    const user = await User.findOne({ email: emailLower });
+    if (!user) {
+      return res.status(404).json({ message: "NO ACCOUNT FOUND WITH THIS EMAIL" });
+    }
+
+    // Generate 6-digit OTP
+    const code = Math.floor(100000 + Math.random() * 900000).toString();
+    
+    // Update or Create OTP in DB
+    await Otp.findOneAndUpdate(
+      { email: emailLower }, 
+      { code, createdAt: Date.now() }, 
+      { upsert: true, new: true }
+    );
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    });
+
+    await transporter.sendMail({
+      from: `"MISO STUDIO" <${process.env.EMAIL_USER}>`,
+      to: emailLower,
+      subject: "PASSWORD RESET CODE",
+      html: `
+        <div style="text-align:center; font-family:sans-serif; padding:20px; border:1px solid #eee;">
+          <h2 style="letter-spacing: 2px;">MISO STUDIO</h2>
+          <p style="color: #666;">YOUR PASSWORD RESET CODE IS:</p>
+          <h1 style="background:#000; color:#fff; display:inline-block; padding:10px 25px; letter-spacing:8px;">${code}</h1>
+          <p style="font-size: 12px; color: #999; margin-top: 20px;">If you did not request this, please ignore this email.</p>
+        </div>`
+    });
+
+    res.status(200).json({ message: "RESET CODE SENT TO EMAIL" });
+  } catch (error) {
+    res.status(500).json({ message: "SERVER ERROR: COULD NOT SEND RESET CODE" });
+  }
+};
+
+// --- 5. RESET PASSWORD ---
+exports.resetPassword = async (req, res) => {
+  try {
+    const { email, code, newPassword } = req.body;
+
+    if (!email || !code || !newPassword) {
+      return res.status(400).json({ message: "PLEASE FILL ALL FIELDS" });
+    }
+
+    const emailLower = email.toLowerCase().trim();
+
+    // Verify OTP matches
+    const otpRecord = await Otp.findOne({ email: emailLower, code: code.trim() });
+    if (!otpRecord) {
+      return res.status(400).json({ message: "INVALID OR EXPIRED RESET CODE" });
+    }
+
+    const user = await User.findOne({ email: emailLower });
+    if (!user) return res.status(404).json({ message: "USER NOT FOUND" });
+
+    // Update Password (Schema pre-save hook will hash this)
+    user.password = newPassword;
+    await user.save();
+
+    // Delete OTP
+    await Otp.deleteOne({ _id: otpRecord._id });
+
+    res.status(200).json({ message: "PASSWORD RESET SUCCESSFUL" });
+  } catch (error) {
+    res.status(500).json({ message: "SERVER ERROR: RESET FAILED" });
+  }
+};

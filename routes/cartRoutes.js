@@ -1,27 +1,26 @@
 const express = require('express');
 const router = express.Router();
+
+// Ensure these names match the controller exactly
 const { 
   addToCart, 
-  removeFromCart, 
   decreaseQuantity, 
+  removeFromCart, 
   clearCart 
 } = require('../controllers/cartController');
+
 const { protect } = require('../middleware/authMiddleware');
 
-// Route: POST /api/cart/add
-// Desc: Add item or increase quantity
-router.post('/add', protect, addToCart);
+// Matches POST /api/cart/add
+router.post('/add', protect, addToCart); 
 
-// Route: POST /api/cart/decrease
-// Desc: Lower quantity by 1 (removes item if quantity becomes 0)
+// Matches POST /api/cart/decrease
 router.post('/decrease', protect, decreaseQuantity);
 
-// Route: DELETE /api/cart/remove/:id
-// Desc: Remove specific product from cart entirely
+// Matches DELETE /api/cart/remove/:id
 router.delete('/remove/:id', protect, removeFromCart);
 
-// Route: DELETE /api/cart/clear
-// Desc: Remove all items from the user's cart
+// Matches DELETE /api/cart/clear
 router.delete('/clear', protect, clearCart);
 
 module.exports = router;
