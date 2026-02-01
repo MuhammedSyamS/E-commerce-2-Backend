@@ -16,7 +16,7 @@ exports.toggleWishlist = async (req, res) => {
     }
 
     await user.save();
-    
+
     // Return the updated array for Zustand to sync
     res.status(200).json(user.wishlist);
   } catch (error) {
@@ -27,7 +27,19 @@ exports.toggleWishlist = async (req, res) => {
 exports.getWishlist = async (req, res) => {
   try {
     const user = await User.findById(req.user._id).populate('wishlist');
-    res.status(200).json(user.wishlist);
+
+    // Filter out nulls (deleted products)
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    // Optional: If length changed, update DB to remove dead IDs
+    if (validWishlist.length !== user.wishlist.length) {
+      await User.updateOne(
+        { _id: req.user._id },
+        { wishlist: validWishlist.map(p => p._id) }
+      );
+    }
+
+    res.status(200).json(validWishlist);
   } catch (error) {
     res.status(500).json({ message: "Error fetching wishlist" });
   }

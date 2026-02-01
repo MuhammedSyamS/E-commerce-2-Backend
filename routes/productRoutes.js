@@ -2,14 +2,17 @@ const express = require('express');
 const router = express.Router();
 
 // Import your controller functions
-const { 
-  getProducts, 
-  getProductBySlug, 
-  createProductReview 
+const {
+  getProducts,
+  getProductBySlug,
+  createProductReview,
+  deleteProductReview,
+  getFeaturedReviews, // Added this import
+  getUserReviews // Added this import
 } = require('../controllers/productController');
 
 // Import your authentication middleware
-const { protect } = require('../middleware/authMiddleware');
+const { protect, admin } = require('../middleware/authMiddleware');
 
 /**
  * @route   GET /api/products
@@ -17,6 +20,20 @@ const { protect } = require('../middleware/authMiddleware');
  * @access  Public
  */
 router.get('/', getProducts);
+
+/**
+ * @route   GET /api/products/reviews/featured
+ * @desc    Fetch latest reviews for home page
+ * @access  Public
+ */
+router.get('/reviews/featured', getFeaturedReviews);
+
+/**
+ * @route   GET /api/products/reviews/my-reviews
+ * @desc    Fetch logged-in user's reviews
+ * @access  Private
+ */
+router.get('/reviews/my-reviews', protect, getUserReviews);
 
 /**
  * @route   GET /api/products/:slug
@@ -31,6 +48,13 @@ router.get('/:slug', getProductBySlug);
  * @access  Private
  */
 router.post('/:id/reviews', protect, createProductReview);
+
+/**
+ * @route   DELETE /api/products/:id/reviews/:reviewId
+ * @desc    Delete a review
+ * @access  Private
+ */
+router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 
 // CRITICAL: Export the router so index.js can use it
 module.exports = router;

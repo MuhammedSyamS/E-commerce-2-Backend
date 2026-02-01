@@ -14,6 +14,29 @@ const userSchema = new mongoose.Schema({
     name: String,
     price: Number,
     image: String
+  }],
+  // NEW FIELDS
+  addresses: [{
+    label: String, // e.g., "Home", "Work"
+    street: String,
+    city: String,
+    state: String,
+    zip: String,
+    phone: String,
+    isDefault: { type: Boolean, default: false }
+  }],
+  notifications: [{
+    title: String,
+    message: String,
+    type: { type: String, enum: ['order', 'promo', 'system'], default: 'system' }, // order, promo, system
+    isRead: { type: Boolean, default: false },
+    createdAt: { type: Date, default: Date.now }
+  }],
+  savedCards: [{
+    last4: String,
+    brand: String, // Visa, MasterCard
+    expMonth: String,
+    expYear: String
   }]
 }, { timestamps: true });
 

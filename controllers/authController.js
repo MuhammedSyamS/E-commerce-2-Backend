@@ -13,7 +13,7 @@ exports.sendOtp = async (req, res) => {
     }
 
     const emailLower = email.toLowerCase().trim();
-    
+
     // Check if user already exists
     const userExists = await User.findOne({ email: emailLower });
     if (userExists) {
@@ -22,11 +22,11 @@ exports.sendOtp = async (req, res) => {
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    
+
     // Save or Update OTP in DB
     await Otp.findOneAndUpdate(
-      { email: emailLower }, 
-      { code, createdAt: Date.now() }, 
+      { email: emailLower },
+      { code, createdAt: Date.now() },
       { upsert: true, new: true }
     );
 
@@ -100,6 +100,8 @@ exports.registerUser = async (req, res) => {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
+      wishlist: user.wishlist, // Init empty
+      cart: user.cart,         // Init empty
       token: generateToken(user._id),
     });
   } catch (error) {
@@ -138,10 +140,43 @@ exports.loginUser = async (req, res) => {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
+      wishlist: user.wishlist,
+      cart: user.cart,
       token: generateToken(user._id),
     });
   } catch (error) {
     res.status(500).json({ message: "LOGIN FAILED: SERVER ERROR" });
+  }
+};
+
+// --- 3.5 GET USER PROFILE (SYNC) ---
+exports.getUserProfile = async (req, res) => {
+  try {
+    // Populate cart and wishlist to ensure frontend gets full objects
+    // Note: If you want just IDs in store, don't populate. 
+    // Usually store keeps IDs or minimal info. 
+    // For now, let's just return the user doc as is, or with populated wishlist IDs if they are objects.
+
+    // Actually, cart logic in frontend likely expects objects if populated, or IDs.
+    // Let's stick to returning what login returns, but fresh.
+    const user = await User.findById(req.user._id);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json({
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      cart: user.cart,
+      wishlist: user.wishlist,
+      token: generateToken(user._id), // Optional: refresh token
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Profile fetch failed" });
   }
 };
 
@@ -152,7 +187,7 @@ exports.forgotPasswordOtp = async (req, res) => {
     if (!email) return res.status(400).json({ message: "EMAIL IS REQUIRED" });
 
     const emailLower = email.toLowerCase().trim();
-    
+
     // Check if user exists
     const user = await User.findOne({ email: emailLower });
     if (!user) {
@@ -161,11 +196,11 @@ exports.forgotPasswordOtp = async (req, res) => {
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    
+
     // Update or Create OTP in DB
     await Otp.findOneAndUpdate(
-      { email: emailLower }, 
-      { code, createdAt: Date.now() }, 
+      { email: emailLower },
+      { code, createdAt: Date.now() },
       { upsert: true, new: true }
     );
 

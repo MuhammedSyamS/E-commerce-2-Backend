@@ -15,19 +15,20 @@ const app = express(); // 1. THIS MUST COME BEFORE APP.USE
 
 // --- MIDDLEWARE ---
 app.use(cors());
-app.use(express.json());
+app.use(cors());
+app.use(express.json({ limit: '50mb' })); // Increased limit for Base64 images
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
   .then(() => console.log('Highphaus MongoDB Connected Successfully'))
   .catch(err => {
     console.error('Database Connection Error:', err.message);
-    process.exit(1); 
+    process.exit(1);
   });
 
 // --- ROUTES ---
 // Changed from /api/auth to /api/users to match your frontend 404 errors
-app.use('/api/users', authRoutes); 
+app.use('/api/users', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/wishlist', wishlistRoutes);

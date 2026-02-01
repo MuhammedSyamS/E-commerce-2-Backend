@@ -3,6 +3,7 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
+// CORRECT SCHEMA (Matches server/models/Product.js)
 const productSchema = new mongoose.Schema({
   name: { type: String, required: true },
   slug: { type: String, required: true, unique: true },
@@ -12,7 +13,12 @@ const productSchema = new mongoose.Schema({
   hoverImage: { type: String },
   isBestSeller: { type: Boolean, default: false },
   isNewArrival: { type: Boolean, default: false },
-  reviews: { type: Number, default: 0 },
+
+  // FIX: reviews must be an Array, not a Number
+  reviews: { type: Array, default: [] },
+  numReviews: { type: Number, default: 0 },
+  rating: { type: Number, default: 0 },
+
   description: { type: String }
 });
 
@@ -28,7 +34,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    reviews: 142,
+    numReviews: 142,
+    reviews: [],
+    rating: 4.8,
     description: "Handcrafted 925 sterling silver eagle motif with an adjustable band for a perfect fit."
   },
   {
@@ -39,7 +47,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 89
+    numReviews: 89,
+    reviews: [],
+    rating: 4.5
   },
   {
     name: "Interlocking Silver Ring",
@@ -48,7 +58,9 @@ const products = [
     category: "Rings",
     image: "https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
-    reviews: 52
+    numReviews: 52,
+    reviews: [],
+    rating: 4.9
   },
   {
     name: "Braided Silver Band",
@@ -57,7 +69,9 @@ const products = [
     category: "Rings",
     image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
-    reviews: 44
+    numReviews: 44,
+    reviews: [],
+    rating: 4.6
   },
   {
     name: "Meteorite Texture Ring",
@@ -67,7 +81,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    reviews: 11
+    numReviews: 11,
+    reviews: [],
+    rating: 4.7
   },
   {
     name: "Industrial Bolt Ring",
@@ -76,7 +92,9 @@ const products = [
     category: "Rings",
     image: "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
-    reviews: 7
+    numReviews: 7,
+    reviews: [],
+    rating: 4.2
   },
   {
     name: "Classic Signet Ring",
@@ -86,7 +104,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 210
+    numReviews: 210,
+    reviews: [],
+    rating: 5.0
   },
   {
     name: "Minimalist Infinity Band",
@@ -95,7 +115,9 @@ const products = [
     category: "Rings",
     image: "https://images.unsplash.com/photo-1589128777073-263566ae5e4d?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
-    reviews: 33
+    numReviews: 33,
+    reviews: [],
+    rating: 4.4
   },
 
   // --- PENDANTS ---
@@ -107,7 +129,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    reviews: 112
+    numReviews: 112,
+    reviews: [],
+    rating: 4.8
   },
   {
     name: "Urban Industrial Chain",
@@ -117,7 +141,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 18
+    numReviews: 18,
+    reviews: [],
+    rating: 5.0
   },
   {
     name: "Lariat Anchor Chain",
@@ -126,7 +152,9 @@ const products = [
     category: "Pendants",
     image: "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
-    reviews: 3
+    numReviews: 3,
+    reviews: [],
+    rating: 4.0
   },
   {
     name: "Astro Compass Pendant",
@@ -136,7 +164,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1599643478518-17488fbbcd75?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 94
+    numReviews: 94,
+    reviews: [],
+    rating: 4.9
   },
   {
     name: "Geometric Prism Charm",
@@ -145,7 +175,9 @@ const products = [
     category: "Pendants",
     image: "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
-    reviews: 22
+    numReviews: 22,
+    reviews: [],
+    rating: 4.3
   },
 
   // --- BRACELETS ---
@@ -156,7 +188,9 @@ const products = [
     category: "Bracelets",
     image: "https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
-    reviews: 31
+    numReviews: 31,
+    reviews: [],
+    rating: 4.5
   },
   {
     name: "Heavy Link Curb Bracelet",
@@ -166,7 +200,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1611955723041-94970f90240d?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 56
+    numReviews: 56,
+    reviews: [],
+    rating: 4.8
   },
   {
     name: "Handmade Bamboo Cuff",
@@ -176,7 +212,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1573408301185-a1d31e66754a?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    reviews: 12
+    numReviews: 12,
+    reviews: [],
+    rating: 4.2
   },
 
   // --- EARRINGS ---
@@ -187,7 +225,9 @@ const products = [
     category: "Earrings",
     image: "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
-    reviews: 19
+    numReviews: 19,
+    reviews: [],
+    rating: 4.5
   },
   {
     name: "Cyberpunk Studs",
@@ -197,7 +237,9 @@ const products = [
     image: "https://images.unsplash.com/photo-1588444839138-042230498c2b?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    reviews: 204
+    numReviews: 204,
+    reviews: [],
+    rating: 4.9
   }
 ];
 

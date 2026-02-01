@@ -13,10 +13,11 @@ exports.addOrderItems = async (req, res) => {
       user: req.user._id,
       orderItems: orderItems.map(item => ({
         name: item.name,
-        qty: item.qty || item.quantity, // Handle both naming conventions
+        qty: item.qty || item.quantity,
         image: item.image,
         price: item.price,
-        product: item.product
+        // SAFETY FIX: Ensure we extract the ID string whether it's an object or string
+        product: item.product?._id || item.product
       })),
       shippingAddress: {
         address: shippingAddress.address,
@@ -51,8 +52,11 @@ exports.getMyOrders = async (req, res) => {
 // --- 3. GET ORDER BY ID ---
 exports.getOrderById = async (req, res) => {
   try {
-    // Find the order by ID
-    const order = await Order.findById(req.params.id);
+    // Find the order by ID and populate product details (slug is critical for navigation)
+    const order = await Order.findById(req.params.id).populate({
+      path: 'orderItems.product',
+      select: 'slug name image'
+    });
 
     // Security Check: Only the user who placed the order (or an admin) can see it
     if (order) {

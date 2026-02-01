@@ -5,7 +5,7 @@ const reviewSchema = new mongoose.Schema({
   rating: { type: Number, required: true },
   comment: { type: String, required: true },
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
-  reviewImage: { type: String }, // For the uploaded review photo
+  images: [{ type: String }], // Array of Base64 strings (Max 4)
 }, { timestamps: true });
 
 const productSchema = new mongoose.Schema({
