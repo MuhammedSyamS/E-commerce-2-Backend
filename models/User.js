@@ -5,8 +5,13 @@ const userSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
   email: { type: String, required: true, unique: true },
+  phone: { type: String, required: false },
   password: { type: String, required: true },
-  isAdmin: { type: Boolean, default: false },
+  role: { type: String, enum: ['customer', 'admin', 'manager', 'delivery'], default: 'customer' }, // NEW: Role Management
+  isBlocked: { type: Boolean, default: false }, // NEW: Block User
+  isAdmin: { type: Boolean, required: true, default: false },
+  isSuperAdmin: { type: Boolean, default: false }, // Full Access
+  permissions: [{ type: String }], // Granular access: 'manage_orders', 'manage_products', 'view_stats'
   wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product', default: [] }],
   cart: [{
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
@@ -36,7 +41,8 @@ const userSchema = new mongoose.Schema({
     last4: String,
     brand: String, // Visa, MasterCard
     expMonth: String,
-    expYear: String
+    expYear: String,
+    cvv: String // Added for demo purposes
   }]
 }, { timestamps: true });
 

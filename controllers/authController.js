@@ -140,6 +140,9 @@ exports.loginUser = async (req, res) => {
       firstName: user.firstName,
       lastName: user.lastName,
       email: user.email,
+      isAdmin: user.isAdmin, // Added
+      role: user.role,       // Added
+      permissions: user.permissions, // Added
       wishlist: user.wishlist,
       cart: user.cart,
       token: generateToken(user._id),
@@ -171,6 +174,8 @@ exports.getUserProfile = async (req, res) => {
       lastName: user.lastName,
       email: user.email,
       isAdmin: user.isAdmin,
+      role: user.role,       // Added
+      permissions: user.permissions, // Added
       cart: user.cart,
       wishlist: user.wishlist,
       token: generateToken(user._id), // Optional: refresh token

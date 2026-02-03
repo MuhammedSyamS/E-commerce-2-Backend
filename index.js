@@ -7,16 +7,20 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
-const wishlistRoutes = require('./routes/wishlistRoutes');
+// const wishlistRoutes = require('./routes/wishlistRoutes'); // Deprecated?
 const cartRoutes = require('./routes/cartRoutes');
+const userRoutes = require('./routes/userRoutes');
+const marketingRoutes = require('./routes/marketingRoutes');
+const reportRoutes = require('./routes/reportRoutes'); // NEW
+// const uploadRoutes = require('./routes/uploadRoutes');
 
 
 const app = express(); // 1. THIS MUST COME BEFORE APP.USE
 
 // --- MIDDLEWARE ---
+app.use(express.json({ limit: '50mb' })); // Increase payload limit for Base64 images
 app.use(cors());
-app.use(cors());
-app.use(express.json({ limit: '50mb' })); // Increased limit for Base64 images
+
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
@@ -27,12 +31,19 @@ mongoose.connect(process.env.MONGO_URI)
   });
 
 // --- ROUTES ---
-// Changed from /api/auth to /api/users to match your frontend 404 errors
+app.use('/api/auth', authRoutes); // Reverting to /api/auth if frontend uses it, or keep /api/users if that was intentional. 
+// Step 1525 showed: app.use('/api/users', authRoutes); app.use('/api/users', userRoutes);
+// This means both auth and user routes are under /api/users.
 app.use('/api/users', authRoutes);
+app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
-app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/reports', reportRoutes); // NEW
+app.use('/api/marketing', marketingRoutes);
+// app.use('/api/reports', reportRoutes); // Removed duplicate
+app.use('/api/settings', require('./routes/settingsRoutes')); // NEW
 app.use('/api/cart', cartRoutes);
+// app.use('/api/upload', uploadRoutes); // NEW
 
 // --- BASE ROUTE ---
 app.get('/', (req, res) => {

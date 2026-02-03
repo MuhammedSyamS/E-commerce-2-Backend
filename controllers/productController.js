@@ -58,7 +58,7 @@ exports.createProductReview = async (req, res) => {
 
     // Construct Name: "Aditya S." or "Aditya Sharma"
     let userName = req.user.firstName || req.user.name || "User";
-    if (req.user.lastName) userName += ` ${req.user.lastName.charAt(0)}.`; // "Aditya S."
+    if (req.user.lastName) userName += ` ${req.user.lastName}`; // "Aditya Sharma"
 
     // Limit images to 4
     const validImages = Array.isArray(images) ? images.slice(0, 4) : [];
@@ -77,7 +77,10 @@ exports.createProductReview = async (req, res) => {
     product.numReviews = product.reviews.length;
     product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
 
-    await product.save();
+    console.log("Saving review to DB...", review);
+    const savedProduct = await product.save();
+    console.log("Review saved! Total reviews now:", savedProduct.reviews.length);
+
     res.status(201).json({ message: 'Review added successfully' });
   } catch (error) {
     console.error("Review Submission Error:", error);
@@ -139,6 +142,43 @@ exports.deleteProductReview = async (req, res) => {
   }
 };
 
+// Toggle Review Visibility
+exports.toggleReviewVisibility = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    const review = product.reviews.id(req.params.reviewId);
+
+    if (review) {
+      review.isApproved = !review.isApproved;
+      await product.save();
+      res.json({ message: 'Review visibility updated', isApproved: review.isApproved });
+    } else {
+      res.status(404).json({ message: 'Review not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Update failed' });
+  }
+};
+
+// Reply to Review
+exports.replyToReview = async (req, res) => {
+  const { response } = req.body;
+  try {
+    const product = await Product.findById(req.params.id);
+    const review = product.reviews.id(req.params.reviewId);
+
+    if (review) {
+      review.adminResponse = response;
+      await product.save();
+      res.json({ message: 'Reply posted', adminResponse: response });
+    } else {
+      res.status(404).json({ message: 'Review not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: 'Reply failed' });
+  }
+};
+
 // Get Logged In User's Reviews
 exports.getUserReviews = async (req, res) => {
   try {
@@ -183,5 +223,143 @@ exports.getUserReviews = async (req, res) => {
   } catch (error) {
     console.error("Error fetching user reviews:", error);
     res.status(500).json({ message: error.message });
+  }
+};
+
+// --- ADMIN CONTROLLERS ---
+
+// @desc    Create a product
+// @route   POST /api/products
+// @access  Private/Admin
+// @desc    Create a product
+// @route   POST /api/products
+// @access  Private/Admin
+exports.createProduct = async (req, res) => {
+  console.log("CREATE PRODUCT REQUEST:", req.body);
+  console.log("USER:", req.user);
+
+  try {
+
+    const { name, price, category, subcategory, image, images, description, isBestSeller, countInStock, discountPrice, specs, tags } = req.body;
+
+    if (!name) return res.status(400).json({ message: "Product Name is required" });
+    if (!price) return res.status(400).json({ message: "Price is required" });
+    if (!category) return res.status(400).json({ message: "Category is required" });
+
+    // Generate slug from name
+    const slugRaw = name.toLowerCase().replace(/ /g, '-').replace(/[^\w-]+/g, '');
+    const slug = slugRaw || 'product'; // Fallback if name is all special chars
+
+    const product = new Product({
+      name,
+      slug: slug + '-' + Date.now().toString().slice(-4), // Ensure uniqueness
+      price,
+      // user: req.user._id, // Removed strict user dependency if schema doesn't have it, or keep if implicit
+      image,
+      images: images || [],
+      category,
+      subcategory,
+      countInStock: countInStock || 0,
+      discountPrice: discountPrice || 0,
+      numReviews: 0,
+      description,
+      specs: specs || [], // Save specs
+      tags: tags || [], // Save tags
+      isBestSeller: isBestSeller || false
+    });
+
+    const createdProduct = await product.save();
+    console.log("PRODUCT CREATED SUCCESSFULLY:", createdProduct._id);
+    res.status(201).json(createdProduct);
+  } catch (error) {
+    console.error("Create Product Error:", error);
+    res.status(500).json({ message: "Product creation failed: " + error.message });
+  }
+};
+
+// @desc    Update a product
+// @route   PUT /api/products/:id
+// @access  Private/Admin
+exports.updateProduct = async (req, res) => {
+  try {
+    const { name, price, description, image, images, category, subcategory, countInStock, isBestSeller, discountPrice, specs, tags } = req.body;
+    const product = await Product.findById(req.params.id);
+
+    if (product) {
+      product.name = name || product.name;
+      product.price = price || product.price;
+      product.description = description || product.description;
+      product.image = image || product.image;
+      product.images = images || product.images;
+      product.category = category || product.category;
+      product.countInStock = countInStock !== undefined ? countInStock : product.countInStock;
+      product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
+      product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
+      product.specs = specs !== undefined ? specs : product.specs;
+      product.tags = tags !== undefined ? tags : product.tags;
+
+      const updatedProduct = await product.save();
+      res.json(updatedProduct);
+    } else {
+      res.status(404).json({ message: 'Product not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Product update failed" });
+  }
+};
+
+// @desc    Get all reviews (Admin)
+// @route   GET /api/products/admin/reviews
+// @access  Private/Admin
+exports.getAllReviews = async (req, res) => {
+  try {
+    const products = await Product.find({ 'reviews.0': { $exists: true } });
+    console.log(`ADMIN REVIEWS: Found ${products.length} products with reviews.`);
+
+    let allReviews = [];
+
+    products.forEach(product => {
+      if (product.reviews && Array.isArray(product.reviews)) {
+        product.reviews.forEach(review => {
+          allReviews.push({
+            _id: product._id, // Product ID needed for deletion
+            productName: product.name,
+            productImage: product.image,
+            review: review
+          });
+        });
+      }
+    });
+
+    console.log(`ADMIN REVIEWS: Total reviews aggregated: ${allReviews.length}`);
+
+    // Sort by Newest
+    allReviews.sort((a, b) => {
+      const dateA = new Date(a.review.createdAt || 0);
+      const dateB = new Date(b.review.createdAt || 0);
+      return dateB - dateA;
+    });
+
+    res.json(allReviews);
+  } catch (error) {
+    console.error("ADMIN REVIEWS ERROR:", error);
+    res.status(500).json({ message: "Failed to fetch reviews" });
+  }
+};
+
+// @desc    Delete a product
+// @route   DELETE /api/products/:id
+// @access  Private/Admin
+exports.deleteProduct = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (product) {
+      await Product.deleteOne({ _id: product._id });
+      res.json({ message: 'Product removed' });
+    } else {
+      res.status(404).json({ message: 'Product not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Product deletion failed" });
   }
 };

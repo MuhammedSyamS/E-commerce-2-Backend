@@ -25,7 +25,7 @@ const protect = async (req, res, next) => {
       }
 
       // 5. Proceed to the next middleware/controller
-      return next(); 
+      return next();
 
     } catch (error) {
       console.error('Auth Error:', error.message);
@@ -43,11 +43,33 @@ const protect = async (req, res, next) => {
  * admin: Middleware to restrict access to admin users only
  */
 const admin = (req, res, next) => {
-  if (req.user && req.user.isAdmin) {
+  if (req.user && (req.user.isAdmin || req.user.role === 'admin')) {
     next();
   } else {
     res.status(403).json({ message: 'Access denied: Requires administrator privileges' });
   }
 };
 
-module.exports = { protect, admin };
+const manager = (req, res, next) => {
+  if (req.user && (req.user.isAdmin || req.user.role === 'admin' || req.user.role === 'manager')) {
+    next();
+  } else {
+    res.status(403).json({ message: 'Access denied: Requires manager or admin privileges' });
+  }
+};
+
+const hasPermission = (permission) => {
+  return (req, res, next) => {
+    // Super Admins have full access
+    if (req.user.isSuperAdmin) return next();
+
+    // Check specific permission
+    if (req.user.permissions && req.user.permissions.includes(permission)) {
+      next();
+    } else {
+      res.status(403).json({ message: 'Not authorized: Insufficient permissions' });
+    }
+  };
+};
+
+module.exports = { protect, admin, manager, hasPermission };

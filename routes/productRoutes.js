@@ -6,13 +6,16 @@ const {
   getProducts,
   getProductBySlug,
   createProductReview,
+  getFeaturedReviews,
   deleteProductReview,
-  getFeaturedReviews, // Added this import
-  getUserReviews // Added this import
+  getUserReviews,
+  createProduct,
+  updateProduct,
+  deleteProduct
 } = require('../controllers/productController');
 
 // Import your authentication middleware
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin, manager } = require('../middleware/authMiddleware');
 
 /**
  * @route   GET /api/products
@@ -37,11 +40,41 @@ router.get('/reviews/my-reviews', protect, getUserReviews);
 
 /**
  * @route   GET /api/products/:slug
- * @desc    Fetch a single product (Fixes the "Blank Page" issue)
+ * @desc    Fetch single product by slug or ID
  * @access  Public
  */
 router.get('/:slug', getProductBySlug);
 
+// ADMIN / MANAGER ROUTES
+/**
+ * @route   POST /api/products
+ * @desc    Create a new product
+ * @access  Private/Admin/Manager
+ */
+router.post('/', protect, manager, createProduct);
+
+/**
+ * @route   PUT /api/products/:id
+ * @desc    Update a product
+ * @access  Private/Admin/Manager
+ */
+router.put('/:id', protect, manager, updateProduct);
+
+/**
+ * @route   DELETE /api/products/:id
+ * @desc    Delete a product
+ * @access  Private/Admin/Manager
+ */
+router.delete('/:id', protect, manager, deleteProduct);
+
+/**
+ * @route   GET /api/products/admin/reviews
+ * @desc    Get all reviews for moderation
+ * @access  Private/Admin/Manager
+ */
+router.get('/admin/reviews', protect, manager, require('../controllers/productController').getAllReviews);
+
+// REVIEWS (User)
 /**
  * @route   POST /api/products/:id/reviews
  * @desc    Create a new review (Star rating, Comment, and Image)
@@ -57,4 +90,7 @@ router.post('/:id/reviews', protect, createProductReview);
 router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 
 // CRITICAL: Export the router so index.js can use it
+router.put('/:id/reviews/:reviewId/toggle', protect, manager, require('../controllers/productController').toggleReviewVisibility);
+router.put('/:id/reviews/:reviewId/reply', protect, manager, require('../controllers/productController').replyToReview);
+
 module.exports = router;
