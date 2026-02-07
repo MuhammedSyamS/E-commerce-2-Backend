@@ -1,26 +1,79 @@
 const Order = require('../models/Order');
+const sendEmail = require('../utils/sendEmail');
+const { getOrderConfirmationTemplate } = require('../utils/emailTemplates');
 
-exports.addOrderItems = async (req, res) => {
+const addOrderItems = async (req, res) => {
   try {
     const { orderItems, shippingAddress, paymentMethod, totalPrice } = req.body;
+    const Product = require('../models/Product'); // Ensure Product is imported
 
     if (!orderItems || orderItems.length === 0) {
       return res.status(400).json({ message: 'No order items provided' });
     }
 
     // CHECK STOCK & DECREMENT
-    // We need to do this serially to avoid race conditions (in a real app, use transactions)
     const productUpdates = [];
 
     for (const item of orderItems) {
-      const product = await require('../models/Product').findById(item.product?._id || item.product);
+      // DEBUG LOG
+      console.log(`PROCESSING ITEM: ${item.name}`);
+      console.log(`- RAW Payload product:`, item.product); // Check what frontend sent
+
+      const productId = item.product?._id || item.product;
+      console.log(`- Resolved ID: ${productId}`);
+
+      const product = await Product.findById(productId);
       if (!product) {
-        return res.status(404).json({ message: `Product not found: ${item.name}` });
+        console.error(`!!! PRODUCT NOT FOUND in DB. ID: ${productId} - Removing from User Cart.`);
+
+        // ACTIVE SELF-HEALING: Remove this specific bad item from the user's DB cart
+        if (req.user && req.user.cart) {
+          const originalLength = req.user.cart.length;
+          // Filter out the bad product ID
+          req.user.cart = req.user.cart.filter(cItem => cItem.product.toString() !== productId);
+
+          if (req.user.cart.length < originalLength) {
+            await req.user.save();
+            console.log("Creating Order Failed -> Bad Item Removed from User Cart");
+          }
+        }
+
+        return res.status(404).json({ message: `Item '${item.name}' is no longer available and has been removed from your cart. Please try again.`, isStale: true });
       }
-      if (product.countInStock < (item.qty || item.quantity)) {
-        return res.status(400).json({ message: `Out of Stock: ${product.name}` });
+
+      const qty = item.qty || item.quantity;
+
+      // VARIANT LOGIC
+      if (item.selectedVariant) {
+        // Find matching variant in DB
+        const variantIndex = product.variants.findIndex(v =>
+          v.size === item.selectedVariant.size &&
+          v.color === item.selectedVariant.color
+        );
+
+        if (variantIndex !== -1) {
+          if (product.variants[variantIndex].stock < qty) {
+            return res.status(400).json({ message: `Out of Stock: ${item.name} (${item.selectedVariant.size} / ${item.selectedVariant.color})` });
+          }
+          // Deduct from Variant
+          product.variants[variantIndex].stock -= qty;
+          // Deduct from Main Stock too (to keep sync)
+          product.countInStock -= qty;
+        } else {
+          // Variant not found in DB? Fallback to main stock check
+          if (product.countInStock < qty) {
+            return res.status(400).json({ message: `Out of Stock: ${item.name}` });
+          }
+          product.countInStock -= qty;
+        }
+      } else {
+        // No Variant Selected
+        if (product.countInStock < qty) {
+          return res.status(400).json({ message: `Out of Stock: ${item.name}` });
+        }
+        product.countInStock -= qty;
       }
-      product.countInStock -= (item.qty || item.quantity);
+
       productUpdates.push(product.save());
     }
 
@@ -34,6 +87,8 @@ exports.addOrderItems = async (req, res) => {
         qty: item.qty || item.quantity,
         image: item.image,
         price: item.price,
+        // Save Variant Info
+        selectedVariant: item.selectedVariant,
         // SAFETY FIX: Ensure we extract the ID string whether it's an object or string
         product: item.product?._id || item.product
       })),
@@ -50,6 +105,21 @@ exports.addOrderItems = async (req, res) => {
     });
 
     const createdOrder = await order.save();
+
+    // --- SEND EMAIL CONFIRMATION ---
+    try {
+      await sendEmail({
+        email: req.user.email,
+        subject: `Order Confirmed - #${createdOrder._id}`,
+        html: getOrderConfirmationTemplate({
+          ...createdOrder.toObject(),
+          user: req.user // Pass user details for template
+        })
+      });
+    } catch (emailError) {
+      console.error("EMAIL FAILED:", emailError.message);
+    }
+    // -----------------------------
     res.status(201).json(createdOrder);
   } catch (error) {
     console.error("ORDER ERROR:", error.message); // Look at your terminal!
@@ -57,7 +127,7 @@ exports.addOrderItems = async (req, res) => {
   }
 };
 
-exports.getMyOrders = async (req, res) => {
+const getMyOrders = async (req, res) => {
   try {
     // Ensure we are searching by the authenticated user's ID
     const orders = await Order.find({ user: req.user._id }).sort({ createdAt: -1 });
@@ -68,7 +138,7 @@ exports.getMyOrders = async (req, res) => {
 };
 
 // --- 3. GET ORDER BY ID ---
-exports.getOrderById = async (req, res) => {
+const getOrderById = async (req, res) => {
   try {
     // Find the order by ID and populate product details (slug is critical for navigation)
     const order = await Order.findById(req.params.id).populate({
@@ -96,7 +166,7 @@ exports.getOrderById = async (req, res) => {
 // @desc    Get All Orders (Admin)
 // @route   GET /api/orders/admin/all
 // @access  Private/Admin
-exports.getAllOrders = async (req, res) => {
+const getAllOrders = async (req, res) => {
   try {
     console.log("ADMIN ORDERS: Fetching all orders...");
     const orders = await Order.find({})
@@ -114,7 +184,7 @@ exports.getAllOrders = async (req, res) => {
 // @desc    Get Orders by User ID (Admin)
 // @route   GET /api/orders/user/:id
 // @access  Private/Admin
-exports.getUserOrders = async (req, res) => {
+const getUserOrders = async (req, res) => {
   try {
     const orders = await Order.find({ user: req.params.id })
       .sort({ createdAt: -1 });
@@ -127,12 +197,50 @@ exports.getUserOrders = async (req, res) => {
 // @desc    Update Order Status (Granular)
 // @route   PUT /api/orders/:id/status
 // @access  Private/Admin
-exports.updateOrderStatus = async (req, res) => {
+const updateOrderStatus = async (req, res) => {
   try {
     const { status } = req.body;
     const order = await Order.findById(req.params.id);
 
     if (order) {
+      // 1. Enforce Status Workflow (MNC Standard)
+      const statusFlow = {
+        'Pending': 0,
+        'Processing': 1,
+        'Confirmed': 2,
+        'Dispatched': 3,
+        'Shipped': 4,
+        'Delivered': 5
+      };
+
+      const currentStatusLevel = statusFlow[order.orderStatus] || 0;
+      const newStatusLevel = statusFlow[status];
+
+      // Allow cancelling from pre-shipping stages
+      if (status === 'Cancelled') {
+        if (currentStatusLevel >= 4) { // If Shipped or Delivered
+          return res.status(400).json({ message: 'Cannot cancel order after it has been shipped.' });
+        }
+      }
+      // Allow returning only after delivery
+      else if (status === 'Returned') {
+        if (order.orderStatus !== 'Delivered') {
+          return res.status(400).json({ message: 'Cannot mark as Returned. Order is not Delivered yet.' });
+        }
+      }
+      // Strict Progression for standard flow
+      else if (newStatusLevel !== undefined) {
+        if (newStatusLevel <= currentStatusLevel && status !== order.orderStatus) {
+          // Allow tweaks
+        }
+
+        if (newStatusLevel > currentStatusLevel + 1) {
+          return res.status(400).json({
+            message: `Invalid Status Update. You cannot skip steps. Current: ${order.orderStatus}, Next allowed: ${Object.keys(statusFlow)[currentStatusLevel + 1]}`
+          });
+        }
+      }
+
       order.orderStatus = status;
 
       // Sync Booleans for backward compatibility
@@ -142,13 +250,38 @@ exports.updateOrderStatus = async (req, res) => {
         // Update Tracking Info if provided
         if (req.body.deliveryPartner) order.deliveryPartner = req.body.deliveryPartner;
         if (req.body.trackingId) order.trackingId = req.body.trackingId;
-      }
-      if (status === 'Delivered') {
+      } else if (status === 'Delivered') {
+        if (!order.isDispatched) {
+          return res.status(400).json({ message: 'Logic Error: Cannot mark Delivered before Shipping.' });
+        }
         order.isDelivered = true;
         order.deliveredAt = Date.now();
+      } else if (['Pending', 'Processing', 'Confirmed', 'Dispatched'].includes(status)) {
+        // Reset booleans if reverting (Admin might correct a mistake)
+        order.isDispatched = false;
+        order.isDelivered = false;
+        order.deliveredAt = null;
+        order.dispatchedAt = null;
       }
 
       const updatedOrder = await order.save();
+
+      // --- TRIGGER PUSH NOTIFICATION ---
+      const pushUtils = require('../utils/push');
+      const msgMap = {
+        'Processing': { title: 'Order Processing', body: 'We are processing your order.' },
+        'Confirmed': { title: 'Order Confirmed', body: 'Your order has been confirmed.' },
+        'Dispatched': { title: 'Order Dispatched', body: 'Your order is ready for dispatch.' },
+        'Shipped': { title: 'Order In Transit', body: `Your order #${order._id.toString().slice(-6)} has been shipped.` },
+        'Delivered': { title: 'Order Delivered', body: 'Your package has arrived! Enjoy your purchase.' },
+        'Refunded': { title: 'Refund Processed', body: 'Your refund request has been approved.' },
+        'Cancelled': { title: 'Order Cancelled', body: 'Your order has been cancelled.' }
+      };
+
+      if (msgMap[status]) {
+        pushUtils.sendToUser(order.user, msgMap[status].title, msgMap[status].body);
+      }
+
       res.json(updatedOrder);
     } else {
       res.status(404).json({ message: 'Order not found' });
@@ -167,7 +300,7 @@ exports.updateOrderStatus = async (req, res) => {
 // @desc    Get Admin Stats (Analytics)
 // @route   GET /api/orders/admin/stats
 // @access  Private/Admin
-exports.getAdminStats = async (req, res) => {
+const getAdminStats = async (req, res) => {
   try {
     const orders = await Order.find({}).sort({ createdAt: -1 });
     const usersCount = await require('../models/User').countDocuments();
@@ -458,7 +591,7 @@ exports.getAdminStats = async (req, res) => {
 // @desc    Cancel Order Item
 // @route   PUT /api/orders/:id/cancel/:itemId
 // @access  Private
-exports.cancelOrderItem = async (req, res) => {
+const cancelOrderItem = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
 
@@ -471,9 +604,9 @@ exports.cancelOrderItem = async (req, res) => {
       return res.status(401).json({ message: 'Not authorized' });
     }
 
-    // Check dispatch status
-    if (order.isDispatched) {
-      return res.status(400).json({ message: 'Cannot cancel item: Order already dispatched' });
+    // Check dispatch status (Global Order Level)
+    if (order.isDispatched || ['Shipped', 'Delivered', 'Returned'].includes(order.orderStatus)) {
+      return res.status(400).json({ message: 'Cannot cancel: Order is already processed/shipped' });
     }
 
     // Find item
@@ -482,21 +615,25 @@ exports.cancelOrderItem = async (req, res) => {
       return res.status(404).json({ message: 'Item not found in order' });
     }
 
+    // STRICT CHECK: Cannot cancel if Return/Exchange in progress
+    const returnStatuses = ['Return Requested', 'Returned', 'Exchange Requested', 'Exchanged', 'Replacement Sent', 'Refunded'];
+    if (returnStatuses.includes(item.status)) {
+      return res.status(400).json({ message: `Cannot cancel item: Return/Exchange is already active (${item.status})` });
+    }
+
     if (item.status === 'Cancelled') {
       return res.status(400).json({ message: 'Item is already cancelled' });
     }
 
     item.status = 'Cancelled';
 
-    // Recalculate Total Price? 
-    // Usually for records we keep the "Charged" amount but maybe add a "Refund Amount". 
-    // For this simple app, let's subtract from total to reflect "Payable".
-    if (order.isPaid) {
-      // If paid, we might need manual refund logic, but let's just update the record
-      // order.totalPrice -= (item.price * item.qty);
-    } else {
-      order.totalPrice -= (item.price * item.qty);
+    // Recalculate Total Price
+    // For this system, we subtract the cancelled item's value
+    if (!order.isPaid) {
+      order.totalPrice -= (item.price * (item.qty || item.quantity));
+      if (order.totalPrice < 0) order.totalPrice = 0;
     }
+    // If Paid, manual refund needed (could flag here)
 
     await order.save();
     res.json(order);
@@ -510,7 +647,7 @@ exports.cancelOrderItem = async (req, res) => {
 // @desc    Delete Order
 // @route   DELETE /api/orders/:id
 // @access  Private/Admin
-exports.deleteOrder = async (req, res) => {
+const deleteOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
 
@@ -528,7 +665,7 @@ exports.deleteOrder = async (req, res) => {
 // @desc    Mark Order as Paid
 // @route   PUT /api/orders/:id/pay
 // @access  Private/Admin
-exports.updateOrderToPaid = async (req, res) => {
+const updateOrderToPaid = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (order) {
@@ -549,7 +686,7 @@ exports.updateOrderToPaid = async (req, res) => {
 // @desc    Refund Order
 // @route   PUT /api/orders/:id/refund
 // @access  Private/Admin
-exports.refundOrder = async (req, res) => {
+const refundOrder = async (req, res) => {
   try {
     const order = await Order.findById(req.params.id);
     if (order) {
@@ -573,51 +710,212 @@ exports.refundOrder = async (req, res) => {
   }
 };
 
+// @desc    Get All Return Requests (Admin)
+// @route   GET /api/orders/admin/returns
+// @access  Private/Admin
+const getReturnRequests = async (req, res) => {
+  try {
+    // Find orders where ANY item has a return/exchange requested status
+    const orders = await Order.find({
+      'orderItems.status': { $in: ['Return Requested', 'Exchange Requested', 'Returned', 'Exchanged'] }
+    })
+      .populate('user', 'firstName lastName email')
+      .sort({ updatedAt: -1 });
+
+    res.json(orders);
+  } catch (error) {
+    console.error("ADMIN RETURNS ERROR:", error);
+    res.status(500).json({ message: "Failed to fetch return requests" });
+  }
+};
+
 // @desc    Request Return/Exchange for Order Item
 // @route   PUT /api/orders/:id/return/:itemId
 // @access  Private
-exports.requestReturn = async (req, res) => {
+// @desc    Request Return or Exchange (User)
+const requestReturn = async (req, res) => {
   try {
-    const { reason, actionType } = req.body; // actionType: 'return' or 'exchange'
+    const { reason, comment, type, images } = req.body;
     const order = await Order.findById(req.params.id);
 
-    if (!order) {
-      return res.status(404).json({ message: 'Order not found' });
-    }
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (order.user.toString() !== req.user._id.toString()) return res.status(401).json({ message: 'Not authorized' });
 
-    // Check authorization
-    if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-      return res.status(401).json({ message: 'Not authorized' });
-    }
+    const item = order.orderItems.id(req.params.itemId);
+    if (!item) return res.status(404).json({ message: 'Item not found' });
 
-    // Check delivery status
-    if (!order.isDelivered) {
-      return res.status(400).json({ message: 'Cannot request return: Order not yet delivered' });
-    }
+    if (!['Delivered'].includes(order.orderStatus)) return res.status(400).json({ message: 'Order request not allowed.' });
 
-    // Find item
-    const item = order.orderItems.find(i => i._id.toString() === req.params.itemId);
-    if (!item) {
-      return res.status(404).json({ message: 'Item not found in order' });
-    }
+    if (item.returnRequest?.isRequested) return res.status(400).json({ message: 'Request already active.' });
 
-    if (item.status === 'Return Requested' || item.status === 'Exchange Requested') {
-      return res.status(400).json({ message: 'Return/Exchange already requested for this item' });
-    }
+    item.returnRequest = {
+      isRequested: true,
+      type: type || 'Return',
+      reason: reason,
+      comment: comment,
+      images: images || [],
+      status: 'Pending',
+      requestedAt: Date.now()
+    };
 
-    if (item.status === 'Returned' || item.status === 'Exchanged') {
-      return res.status(400).json({ message: 'Item already processed' });
-    }
-
-    // Update Item Status
-    item.status = actionType === 'exchange' ? 'Exchange Requested' : 'Return Requested';
-    item.returnReason = reason || 'No reason provided';
+    // Status update for visibility
+    item.status = type === 'Exchange' ? 'Exchange Requested' : 'Return Requested';
 
     await order.save();
-    res.json(order);
-
+    res.json({ message: 'Request submitted successfully', order });
   } catch (error) {
-    console.error("RETURN ERROR:", error);
-    res.status(500).json({ message: 'Return request failed', error: error.message });
+    res.status(500).json({ message: error.message });
   }
+};
+
+// @desc    Admin Manage Return (Approve/Reject)
+// @desc    Admin Manage Return (Approve/Reject)
+const handleReturnAction = async (req, res) => {
+  try {
+    const { action, adminComment } = req.body;
+    const order = await Order.findById(req.params.id).populate('user', 'email firstName lastName');
+    const Product = require('../models/Product'); // Ensure Model is loaded
+
+    if (!order) return res.status(404).json({ message: 'Order not found' });
+    const item = order.orderItems.id(req.params.itemId);
+    if (!item) return res.status(404).json({ message: 'Item not found' });
+
+    if (action === 'Approve') {
+
+      // --- LOGIC FOR RETURNS ---
+      if (item.returnRequest.type === 'Return') {
+        item.returnRequest.status = 'Approved';
+        item.returnRequest.resolvedAt = Date.now();
+        item.returnRequest.adminComment = adminComment;
+        item.status = 'Returned';
+
+        // RESTOCK LOGIC: Only restock if NOT damaged
+        // "Damaged Product" means we trash it. "Size Issue" / "Changed Mind" means we sell it again.
+        if (item.returnRequest.reason !== 'Damaged Product') {
+          const product = await Product.findById(item.product);
+          if (product) {
+            const qty = item.qty || item.quantity;
+
+            // 1. Update Variant Stock
+            if (item.selectedVariant) {
+              const vIndex = product.variants.findIndex(v =>
+                v.size === item.selectedVariant.size &&
+                v.color === item.selectedVariant.color
+              );
+              if (vIndex !== -1) {
+                product.variants[vIndex].stock += qty;
+              }
+            }
+
+            // 2. Update Master Stock
+            product.countInStock += qty;
+            await product.save();
+            console.log(`RESTOCKED Item: ${item.name} (+${qty})`);
+          }
+        }
+
+        // --- LOGIC FOR EXCHANGES ---
+      } else if (item.returnRequest.type === 'Exchange') {
+
+        // 1. Check Stock for Replacement
+        const product = await Product.findById(item.product);
+        if (!product) return res.status(404).json({ message: 'Product for exchange no longer exists' });
+
+        const qty = item.qty || item.quantity;
+        let hasStock = false;
+        let vIndex = -1;
+
+        if (item.selectedVariant) {
+          vIndex = product.variants.findIndex(v =>
+            v.size === item.selectedVariant.size &&
+            v.color === item.selectedVariant.color
+          );
+          if (vIndex !== -1 && product.variants[vIndex].stock >= qty) {
+            hasStock = true;
+          }
+        } else {
+          if (product.countInStock >= qty) hasStock = true;
+        }
+
+        if (!hasStock) {
+          return res.status(400).json({ message: 'Cannot Approve Exchange: Replacement item is OUT OF STOCK.' });
+        }
+
+        // 2. DECREMENT STOCK (Sending new item)
+        if (vIndex !== -1) {
+          product.variants[vIndex].stock -= qty;
+        }
+        product.countInStock -= qty;
+        await product.save();
+
+        // 3. CREATE REPLACEMENT ORDER
+        const replacementOrder = new Order({
+          user: order.user._id,
+          orderItems: [{
+            name: `REPLACEMENT: ${item.name}`,
+            qty: qty,
+            image: item.image,
+            price: 0, // FREE REPLACEMENT
+            product: item.product,
+            selectedVariant: item.selectedVariant,
+            status: 'Processing' // Start directly at Processing
+          }],
+          shippingAddress: order.shippingAddress, // Ship to original address
+          paymentMethod: 'Exchange Replacement',
+          totalPrice: 0,
+          isPaid: true,
+          paidAt: Date.now(),
+          orderStatus: 'Processing'
+        });
+
+        const createdReplacement = await replacementOrder.save();
+        console.log(`REPLACEMENT ORDER CREATED: ${createdReplacement._id}`);
+
+        // Update Original Request
+        item.returnRequest.status = 'Approved';
+        item.returnRequest.resolvedAt = Date.now();
+        item.returnRequest.adminComment = `${adminComment || ''} (Replacement Order #${createdReplacement._id})`;
+        item.status = 'Exchanged';
+      }
+
+    } else if (action === 'Reject') {
+      item.returnRequest.status = 'Rejected';
+      item.returnRequest.resolvedAt = Date.now();
+      item.returnRequest.adminComment = adminComment;
+      item.status = 'Delivered'; // Revert to Delivered state (User keeps item)
+    } else {
+      return res.status(400).json({ message: 'Invalid Action' });
+    }
+
+    await order.save();
+
+    // NOTIFY USER (Push Notification)
+    const pushUtils = require('../utils/push');
+    const title = action === 'Approve' ? `${item.returnRequest.type} Approved` : `${item.returnRequest.type} Request Update`;
+    const body = action === 'Approve'
+      ? `Your request for ${item.name} has been approved.`
+      : `Your request for ${item.name} was rejected. Check details.`;
+
+    pushUtils.sendToUser(order.user, title, body);
+
+    res.json(order);
+  } catch (error) {
+    console.error("RETURN ACTION ERROR", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+
+
+module.exports = {
+  addOrderItems,
+  getMyOrders,
+  getOrderById,
+  getAllOrders,
+  getUserOrders,
+  updateOrderStatus,
+  getAdminStats,
+  cancelOrderItem,
+  deleteOrder,
+  updateOrderToPaid
 };

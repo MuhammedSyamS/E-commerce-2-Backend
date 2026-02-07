@@ -3,16 +3,27 @@ const User = require('../models/User');
 // --- 1. ADD TO CART ---
 const addToCart = async (req, res) => {
   try {
-    const { productId, name, price, image, quantity } = req.body;
-    const qtyToAdd = Number(quantity) || 1;
+    const { productId, quantity } = req.body;
     const user = await User.findById(req.user._id);
 
-    const existingItem = user.cart.find(item => item.product.toString() === productId);
+    const itemIndex = user.cart.findIndex(item => {
+      const sameId = item.product.toString() === productId;
+      // Compare Variants
+      const sameVariant = JSON.stringify(item.selectedVariant) === JSON.stringify(req.body.selectedVariant);
+      return sameId && sameVariant;
+    });
 
-    if (existingItem) {
-      existingItem.quantity += qtyToAdd;
+    if (itemIndex > -1) {
+      user.cart[itemIndex].quantity += quantity || 1;
     } else {
-      user.cart.push({ product: productId, name, price, image, quantity: qtyToAdd });
+      user.cart.push({
+        product: productId,
+        name: req.body.name,
+        price: req.body.price,
+        image: req.body.image,
+        quantity: quantity || 1,
+        selectedVariant: req.body.selectedVariant // Save Variant
+      });
     }
 
     await user.save();
@@ -59,7 +70,7 @@ const removeFromCart = async (req, res) => {
 const clearCart = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
-    user.cart = []; 
+    user.cart = [];
     await user.save();
     res.status(200).json(user.cart);
   } catch (error) {

@@ -31,9 +31,38 @@ const productSchema = new mongoose.Schema({
   flashSalePrice: { type: Number },
   flashSaleExpiry: { type: Date },
   countInStock: { type: Number, required: true, default: 0 },
+
+  // NEW: Advanced Fields
+  video: { type: String }, // YouTube or File URL
+  variants: [{
+    size: { type: String },
+    color: { type: String },
+    stock: { type: Number, default: 0 },
+    price: { type: Number } // Optional override
+  }],
+  seo: {
+    metaTitle: { type: String },
+    metaDescription: { type: String },
+    keywords: [{ type: String }]
+  },
+  richDescription: { type: String }, // HTML
+
   reviews: [reviewSchema],
   rating: { type: Number, required: true, default: 0 },
   numReviews: { type: Number, required: true, default: 0 }
 }, { timestamps: true });
+
+// ENFORCE STOCK CONSISTENCY
+// ENFORCE STOCK CONSISTENCY
+productSchema.pre('save', async function () {
+  if (this.variants && this.variants.length > 0) {
+    const totalVariantStock = this.variants.reduce((acc, curr) => acc + (Number(curr.stock) || 0), 0);
+    // Only update if inconsistent
+    if (this.countInStock !== totalVariantStock) {
+      console.log(`Auto-Updating Stock for ${this.name}: ${this.countInStock} -> ${totalVariantStock}`);
+      this.countInStock = totalVariantStock;
+    }
+  }
+});
 
 module.exports = mongoose.model('Product', productSchema);

@@ -7,6 +7,7 @@ const cors = require('cors');
 const authRoutes = require('./routes/authRoutes');
 const productRoutes = require('./routes/productRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const returnRoutes = require('./routes/returnRoutes'); // NEW
 // const wishlistRoutes = require('./routes/wishlistRoutes'); // Deprecated?
 const cartRoutes = require('./routes/cartRoutes');
 const userRoutes = require('./routes/userRoutes');
@@ -38,12 +39,24 @@ app.use('/api/users', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/orders', orderRoutes);
+app.use('/api/returns', returnRoutes); // NEW MODULE
 app.use('/api/reports', reportRoutes); // NEW
 app.use('/api/marketing', marketingRoutes);
 // app.use('/api/reports', reportRoutes); // Removed duplicate
 app.use('/api/settings', require('./routes/settingsRoutes')); // NEW
 app.use('/api/cart', cartRoutes);
-// app.use('/api/upload', uploadRoutes); // NEW
+app.use('/api/notifications', require('./routes/notificationRoutes')); // NEW
+app.use('/api/payments', require('./routes/paymentRoutes')); // RAZORPAY
+const uploadRoutes = require('./routes/uploadRoutes');
+const path = require('path');
+
+// ...
+
+app.use('/api/notifications', require('./routes/notificationRoutes')); // NEW
+app.use('/api/upload', uploadRoutes); // NEW
+
+// Make uploads folder static
+app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
 // --- BASE ROUTE ---
 app.get('/', (req, res) => {

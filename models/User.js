@@ -18,7 +18,13 @@ const userSchema = new mongoose.Schema({
     quantity: { type: Number, default: 1 },
     name: String,
     price: Number,
-    image: String
+    image: String,
+    selectedVariant: {
+      size: String,
+      color: String,
+      price: Number,
+      stock: Number
+    }
   }],
   // NEW FIELDS
   addresses: [{
@@ -37,6 +43,7 @@ const userSchema = new mongoose.Schema({
     isRead: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
   }],
+  pushSubscription: { type: Object }, // Store VAPID subscription object
   savedCards: [{
     last4: String,
     brand: String, // Visa, MasterCard

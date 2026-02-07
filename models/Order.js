@@ -11,6 +11,11 @@ const orderSchema = new mongoose.Schema({
     qty: { type: Number, required: true },
     image: { type: String, required: true },
     price: { type: Number, required: true },
+    selectedVariant: {
+      size: String,
+      color: String,
+      price: Number
+    },
     product: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Product',
@@ -20,14 +25,14 @@ const orderSchema = new mongoose.Schema({
       type: String,
       required: true,
       default: 'Ordered',
-      enum: ['Ordered', 'Cancelled', 'Return Requested', 'Returned', 'Exchange Requested', 'Exchanged']
-    },
-    returnReason: { type: String } // Reason for return/exchange
+      enum: ['Ordered', 'Cancelled', 'Return Requested', 'Returned', 'Exchange Requested', 'Exchanged', 'Delivered']
+    }
   }],
+
   orderStatus: {
     type: String,
     required: true,
-    enum: ['Pending', 'Confirmed', 'Packed', 'Shipped', 'Delivered', 'Cancelled', 'Return Requested', 'Returned'],
+    enum: ['Pending', 'Processing', 'Confirmed', 'Dispatched', 'Shipped', 'Delivered', 'Cancelled', 'Return Requested', 'Returned'],
     default: 'Pending'
   },
   shippingAddress: {

@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { toggleWishlist, addAddress, removeAddress, updateProfile, getNotifications, addCard, removeCard } = require('../controllers/userController');
+const { toggleWishlist, addAddress, removeAddress, updateProfile, getNotifications, markNotificationRead, addCard, removeCard } = require('../controllers/userController');
 const { protect, admin } = require('../middleware/authMiddleware');
 
 // All wishlist actions require being logged in
@@ -19,7 +19,9 @@ router.get('/profile', protect, require('../controllers/userController').getUser
 router.put('/profile', protect, updateProfile);
 
 // Notifications
+// Notification Routes
 router.get('/notifications', protect, getNotifications);
+router.put('/notifications/:id/read', protect, markNotificationRead); // NEW
 
 // --- ADMIN ROUTES ---
 // We should add an 'admin' middleware check here in a real app, 

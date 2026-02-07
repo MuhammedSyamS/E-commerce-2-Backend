@@ -117,6 +117,28 @@ exports.getUserProfile = async (req, res) => {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: "User not found" });
 
+    // SELF-HEALING CART: Remove stale items (where Product deleted from DB)
+    if (user.cart && user.cart.length > 0) {
+      const Product = require('../models/Product');
+      const validCart = [];
+      let cartModified = false;
+
+      for (const item of user.cart) {
+        const productExists = await Product.exists({ _id: item.product });
+        if (productExists) {
+          validCart.push(item);
+        } else {
+          console.log(`Removing stale cart item: ${item.name} (Product ID: ${item.product} not found)`);
+          cartModified = true;
+        }
+      }
+
+      if (cartModified) {
+        user.cart = validCart;
+        await user.save();
+      }
+    }
+
     res.json({
       _id: user._id,
       firstName: user.firstName,
@@ -146,9 +168,38 @@ exports.getNotifications = async (req, res) => {
   try {
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: "User not found" });
-    res.json(user.notifications ? user.notifications.reverse() : []);
+
+    const Notification = require('../models/Notification');
+    // Fetch from Notification Collection
+    const notifications = await Notification.find({
+      $or: [{ user: req.user._id }, { user: null }] // Include global alerts
+    }).sort({ createdAt: -1 }).limit(20);
+
+    res.json(notifications);
+
   } catch (error) {
+    console.error("Notif Fetch Error:", error);
     res.status(500).json({ message: "Fetch failed" });
+  }
+};
+
+// @desc    Mark notification as read
+// @route   PUT /api/users/notifications/:id/read
+// @access  Private
+exports.markNotificationRead = async (req, res) => {
+  try {
+    const Notification = require('../models/Notification');
+    const notif = await Notification.findById(req.params.id);
+
+    if (notif) {
+      notif.isRead = true;
+      await notif.save();
+      res.json(notif);
+    } else {
+      res.status(404).json({ message: "Notification not found" });
+    }
+  } catch (error) {
+    res.status(500).json({ message: "Update failed" });
   }
 };
 

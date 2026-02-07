@@ -9,7 +9,9 @@ exports.getProducts = async (req, res) => {
       query = { category };
     }
     const products = await Product.find(query);
+    console.log(`DEBUG: Sending ${products.length} products. Sample Stock:`, products.slice(0, 3).map(p => ({ name: p.name, stock: p.countInStock })));
     res.status(200).json(products);
+
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -240,7 +242,7 @@ exports.createProduct = async (req, res) => {
 
   try {
 
-    const { name, price, category, subcategory, image, images, description, isBestSeller, countInStock, discountPrice, specs, tags } = req.body;
+    const { name, price, category, subcategory, image, images, description, richDescription, isBestSeller, countInStock, discountPrice, specs, tags, video, variants, seo } = req.body;
 
     if (!name) return res.status(400).json({ message: "Product Name is required" });
     if (!price) return res.status(400).json({ message: "Price is required" });
@@ -259,17 +261,32 @@ exports.createProduct = async (req, res) => {
       images: images || [],
       category,
       subcategory,
-      countInStock: countInStock || 0,
+      countInStock: (countInStock !== undefined && countInStock !== '') ? Number(countInStock) : 0,
       discountPrice: discountPrice || 0,
       numReviews: 0,
       description,
-      specs: specs || [], // Save specs
-      tags: tags || [], // Save tags
+      richDescription, // NEW
+      specs: specs || [],
+      tags: tags || [],
+      // NEW ADVANCED FIELDS
+      video,
+      variants: variants || [],
+      seo: seo || {},
       isBestSeller: isBestSeller || false
     });
 
     const createdProduct = await product.save();
     console.log("PRODUCT CREATED SUCCESSFULLY:", createdProduct._id);
+
+    // --- TRIGGER PUSH NOTIFICATION ---
+    const pushUtils = require('../utils/push');
+    // Don't await strictly to avoid blocking response
+    pushUtils.sendToAll(
+      "New Drop Alert!",
+      `Check out our latest arrival: ${createdProduct.name}`,
+      { url: `/product/${createdProduct.slug}` }
+    );
+
     res.status(201).json(createdProduct);
   } catch (error) {
     console.error("Create Product Error:", error);
@@ -282,7 +299,7 @@ exports.createProduct = async (req, res) => {
 // @access  Private/Admin
 exports.updateProduct = async (req, res) => {
   try {
-    const { name, price, description, image, images, category, subcategory, countInStock, isBestSeller, discountPrice, specs, tags } = req.body;
+    const { name, price, description, richDescription, image, images, category, subcategory, countInStock, isBestSeller, discountPrice, specs, tags, video, variants, seo } = req.body;
     const product = await Product.findById(req.params.id);
 
     if (product) {
@@ -292,11 +309,16 @@ exports.updateProduct = async (req, res) => {
       product.image = image || product.image;
       product.images = images || product.images;
       product.category = category || product.category;
-      product.countInStock = countInStock !== undefined ? countInStock : product.countInStock;
+      product.countInStock = (countInStock !== undefined && countInStock !== '') ? Number(countInStock) : product.countInStock;
       product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
       product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
       product.specs = specs !== undefined ? specs : product.specs;
       product.tags = tags !== undefined ? tags : product.tags;
+      // NEW
+      product.video = video || product.video;
+      product.variants = variants || product.variants;
+      product.seo = seo || product.seo;
+      product.richDescription = richDescription || product.richDescription;
 
       const updatedProduct = await product.save();
       res.json(updatedProduct);
