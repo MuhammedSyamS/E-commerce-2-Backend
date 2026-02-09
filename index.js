@@ -63,6 +63,10 @@ app.get('/', (req, res) => {
   res.send('Highphaus API is running...');
 });
 
+// --- CRON JOBS ---
+const startCronJobs = require('./utils/cronJobs');
+startCronJobs();
+
 // --- GLOBAL ERROR HANDLING ---
 app.use((err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;

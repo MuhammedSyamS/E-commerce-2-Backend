@@ -1,16 +1,20 @@
 const User = require('../models/User');
 
+// Helper to compare variants (Size/Color)
+const isSameVariant = (v1, v2) => {
+  if (!v1 && !v2) return true;
+  if (!v1 || !v2) return false;
+  return v1.size === v2.size && v1.color === v2.color;
+};
+
 // --- 1. ADD TO CART ---
 const addToCart = async (req, res) => {
   try {
-    const { productId, quantity } = req.body;
+    const { productId, quantity, selectedVariant } = req.body;
     const user = await User.findById(req.user._id);
 
     const itemIndex = user.cart.findIndex(item => {
-      const sameId = item.product.toString() === productId;
-      // Compare Variants
-      const sameVariant = JSON.stringify(item.selectedVariant) === JSON.stringify(req.body.selectedVariant);
-      return sameId && sameVariant;
+      return item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);
     });
 
     if (itemIndex > -1) {
@@ -22,7 +26,7 @@ const addToCart = async (req, res) => {
         price: req.body.price,
         image: req.body.image,
         quantity: quantity || 1,
-        selectedVariant: req.body.selectedVariant // Save Variant
+        selectedVariant: selectedVariant
       });
     }
 
@@ -36,15 +40,18 @@ const addToCart = async (req, res) => {
 // --- 2. DECREASE QUANTITY ---
 const decreaseQuantity = async (req, res) => {
   try {
-    const { productId } = req.body;
+    const { productId, selectedVariant } = req.body;
     const user = await User.findById(req.user._id);
-    const existingItem = user.cart.find(item => item.product.toString() === productId);
 
-    if (existingItem) {
-      if (existingItem.quantity > 1) {
-        existingItem.quantity -= 1;
+    const itemIndex = user.cart.findIndex(item => {
+      return item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);
+    });
+
+    if (itemIndex > -1) {
+      if (user.cart[itemIndex].quantity > 1) {
+        user.cart[itemIndex].quantity -= 1;
       } else {
-        user.cart = user.cart.filter(item => item.product.toString() !== productId);
+        user.cart.splice(itemIndex, 1);
       }
       await user.save();
     }
@@ -57,8 +64,20 @@ const decreaseQuantity = async (req, res) => {
 // --- 3. REMOVE FROM CART ---
 const removeFromCart = async (req, res) => {
   try {
+    const { productId, selectedVariant, _id } = req.body; // _id is the Cart Item Subdocument ID
     const user = await User.findById(req.user._id);
-    user.cart = user.cart.filter(item => item.product.toString() !== req.params.id);
+
+    if (_id) {
+      // ROBUST DELETE: Remove by unique Cart Item ID
+      user.cart = user.cart.filter(item => item._id.toString() !== _id);
+    } else {
+      // LEGACY FALLBACK: Remove by Product ID + Variant
+      user.cart = user.cart.filter(item => {
+        const isTarget = item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);
+        return !isTarget;
+      });
+    }
+
     await user.save();
     res.status(200).json(user.cart);
   } catch (error) {

@@ -104,23 +104,57 @@ const addOrderItems = async (req, res) => {
       paidAt: paymentMethod === 'cod' ? null : Date.now(),
     });
 
-    const createdOrder = await order.save();
-
-    // --- SEND EMAIL CONFIRMATION ---
+    // --- SAFETY WRAPPER: Try to save order. If fails, RESTORE STOCK ---
     try {
-      await sendEmail({
-        email: req.user.email,
-        subject: `Order Confirmed - #${createdOrder._id}`,
-        html: getOrderConfirmationTemplate({
-          ...createdOrder.toObject(),
-          user: req.user // Pass user details for template
-        })
-      });
-    } catch (emailError) {
-      console.error("EMAIL FAILED:", emailError.message);
+      const createdOrder = await order.save();
+
+      // --- SEND EMAIL CONFIRMATION ---
+      try {
+        await sendEmail({
+          email: req.user.email,
+          subject: `Order Confirmed - #${createdOrder._id}`,
+          html: getOrderConfirmationTemplate({
+            ...createdOrder.toObject(),
+            user: req.user // Pass user details for template
+          })
+        });
+      } catch (emailError) {
+        console.error("EMAIL FAILED:", emailError.message);
+      }
+      // -----------------------------
+      res.status(201).json(createdOrder);
+
+    } catch (saveError) {
+      console.error("CRITICAL: Order Save Failed AFTER Stock Deduction. Restoring Stock...");
+
+      // RESTORE STOCK LOGIC (Inverse of above)
+      for (const item of orderItems) {
+        try {
+          const productId = item.product?._id || item.product;
+          const productToRestore = await Product.findById(productId);
+          if (!productToRestore) continue;
+
+          const qty = item.qty || item.quantity;
+
+          if (item.selectedVariant) {
+            const vIndex = productToRestore.variants.findIndex(v =>
+              v.size === item.selectedVariant.size && v.color === item.selectedVariant.color
+            );
+            if (vIndex !== -1) {
+              productToRestore.variants[vIndex].stock += qty;
+            }
+          }
+          productToRestore.countInStock += qty;
+          await productToRestore.save();
+          console.log(`- Restored ${item.name} (${qty})`);
+        } catch (restoreErr) {
+          console.error(`!!! FATAL: Failed to restore stock for ${item.name}:`, restoreErr);
+        }
+      }
+
+      return res.status(500).json({ message: "Database rejected the order. Stock has been restored.", error: saveError.message });
     }
-    // -----------------------------
-    res.status(201).json(createdOrder);
+
   } catch (error) {
     console.error("ORDER ERROR:", error.message); // Look at your terminal!
     res.status(500).json({ message: "Database rejected the order", error: error.message });
@@ -627,6 +661,35 @@ const cancelOrderItem = async (req, res) => {
 
     item.status = 'Cancelled';
 
+    // --- RESTORE STOCK ---
+    const Product = require('../models/Product');
+    const product = await Product.findById(item.product);
+
+    if (product) {
+      const qty = item.qty || item.quantity;
+
+      // Variant Logic
+      if (item.selectedVariant) {
+        const vIndex = product.variants.findIndex(v =>
+          v.size === item.selectedVariant.size &&
+          v.color === item.selectedVariant.color
+        );
+
+        if (vIndex !== -1) {
+          product.variants[vIndex].stock += qty;
+          console.log(`Cancelling: Restored Variant Stock (+${qty})`);
+        }
+      }
+
+      // Main Stock
+      product.countInStock += qty;
+      await product.save();
+      console.log(`Cancelling: Restored Main Stock (+${qty}) for ${product.name}`);
+    } else {
+      console.warn(`Warning: Product for cancelled item not found (ID: ${item.product})`);
+    }
+    // ---------------------
+
     // Recalculate Total Price
     // For this system, we subtract the cancelled item's value
     if (!order.isPaid) {
@@ -799,18 +862,18 @@ const handleReturnAction = async (req, res) => {
             // 1. Update Variant Stock
             if (item.selectedVariant) {
               const vIndex = product.variants.findIndex(v =>
-                v.size === item.selectedVariant.size &&
-                v.color === item.selectedVariant.color
+                v.size === item.selectedVariant.size && v.color === item.selectedVariant.color
               );
               if (vIndex !== -1) {
                 product.variants[vIndex].stock += qty;
               }
             }
 
-            // 2. Update Master Stock
+            // 2. Update Main Stock
             product.countInStock += qty;
+
             await product.save();
-            console.log(`RESTOCKED Item: ${item.name} (+${qty})`);
+            console.log(`Return Approved: Restored ${qty} to ${product.name}`);
           }
         }
 
