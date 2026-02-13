@@ -1,100 +1,112 @@
 const PDFDocument = require('pdfkit');
 const Order = require('../models/Order');
-const path = require('path');
-const fs = require('fs');
 
-// @desc    Generate PDF Invoice
-// @route   GET /api/orders/:id/invoice
-// @access  Private
 const generateInvoice = async (req, res) => {
     try {
-        const order = await Order.findById(req.params.id).populate('user', 'name email');
+        const order = await Order.findById(req.params.id)
+            .populate('user', 'firstName lastName email'); // Populate user details
 
         if (!order) {
             return res.status(404).json({ message: "Order not found" });
         }
 
-        // Authorization Check
-        if (order.user._id.toString() !== req.user._id.toString() && !req.user.isAdmin) {
-            return res.status(401).json({ message: "Not authorized" });
-        }
-
+        // Create a document
         const doc = new PDFDocument({ margin: 50 });
 
-        // Set Response Headers
+        // Set correct headers for download
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=invoice_${order._id}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=invoice-${order._id}.pdf`);
 
-        // Pipe to Response
+        // Pipe PDF to response
         doc.pipe(res);
 
-        // --- PDF CONTENT ---
+        // --- HEADER ---
+        doc
+            .fontSize(20)
+            .font('Helvetica-Bold')
+            .text('SLOOK', 50, 50)
+            .fontSize(10)
+            .font('Helvetica')
+            .text('INVOICE / RECEIPT', 50, 80)
+            .moveDown();
 
-        // 1. Header
-        doc.fontSize(20).text('HighPhaus Invoice', { align: 'center' });
-        doc.moveDown();
+        // --- ORDER DETAILS ---
+        const customerName = order.user ? `${order.user.firstName} ${order.user.lastName}` : "Valued Customer";
+        const orderDate = new Date(order.createdAt).toLocaleDateString();
 
-        // 2. Company Info & Order Details
-        doc.fontSize(10).text('HighPhaus Inc.', 50, 80);
-        doc.text('123 Luxury Lane, Kerala, India', 50, 95);
-        doc.text('support@highphaus.com', 50, 110);
+        doc
+            .fontSize(10)
+            .text(`Order ID: ${order._id}`, 50, 120)
+            .text(`Date: ${orderDate}`, 50, 135)
+            .text(`Status: ${order.orderStatus}`, 50, 150)
+            .moveDown();
 
-        doc.text(`Invoice Number: INV-${order._id.toString().slice(-6).toUpperCase()}`, 400, 80);
-        doc.text(`Order Date: ${new Date(order.createdAt).toDateString()}`, 400, 95);
-        doc.text(`Status: ${order.isPaid ? 'PAID' : 'PENDING'}`, 400, 110);
+        doc
+            .text(`Issued To:`, 300, 120)
+            .font('Helvetica-Bold')
+            .text(customerName, 300, 135)
+            .font('Helvetica')
+            .text(order.shippingAddress?.address || '', 300, 150)
+            .text(`${order.shippingAddress?.city}, ${order.shippingAddress?.postalCode}`, 300, 165)
+            .text(order.shippingAddress?.country || '', 300, 180);
 
+        // --- LINE ITEMS HEADER ---
         doc.moveDown(4);
-
-        // 3. Billing To
-        doc.font('Helvetica-Bold').text('Bill To:', 50, 150);
-        doc.font('Helvetica').text(order.shippingAddress.address, 50, 165);
-        doc.text(`${order.shippingAddress.city} - ${order.shippingAddress.postalCode}`, 50, 180);
-        doc.text(`Phone: ${order.shippingAddress.phone}`, 50, 195);
-
-        doc.moveDown();
-
-        // 4. Items Table Header
         const tableTop = 250;
+
         doc.font('Helvetica-Bold');
         doc.text('Item', 50, tableTop);
-        doc.text('Qty', 350, tableTop); // shifted right
-        doc.text('Price', 400, tableTop);
-        doc.text('Total', 500, tableTop, { align: 'right' }); // aligned right
-        doc.moveTo(50, tableTop + 15).lineTo(550, tableTop + 15).stroke();
+        doc.text('Qty', 280, tableTop);
+        doc.text('Price', 340, tableTop);
+        doc.text('Total', 450, tableTop);
 
-        let position = tableTop + 30;
+        doc
+            .moveTo(50, tableTop + 15)
+            .lineTo(550, tableTop + 15)
+            .stroke();
 
-        // 5. Items Loop
+        // --- LINE ITEMS ---
+        let y = tableTop + 30;
         doc.font('Helvetica');
+
         order.orderItems.forEach(item => {
-            const totalPrice = item.qty * item.price;
+            const itemTotal = item.qty * item.price;
 
-            // Item Name (Truncate if too long)
-            doc.text(item.name.substring(0, 45), 50, position);
-            doc.text(item.qty.toString(), 350, position);
-            doc.text(`INR ${item.price}`, 400, position);
-            doc.text(`INR ${totalPrice}`, 500, position, { align: 'right' });
+            // Truncate name if too long
+            const itemName = item.name.length > 40 ? item.name.substring(0, 37) + '...' : item.name;
 
-            position += 20;
+            doc.text(itemName, 50, y);
+            doc.text(item.qty.toString(), 280, y);
+            doc.text(`INR ${item.price}`, 340, y);
+            doc.text(`INR ${itemTotal}`, 450, y);
+
+            y += 20;
         });
 
-        // 6. Totals
-        doc.moveTo(50, position + 10).lineTo(550, position + 10).stroke();
-        position += 25;
+        // --- TOTALS ---
+        doc
+            .moveTo(50, y + 10)
+            .lineTo(550, y + 10)
+            .stroke();
+
+        y += 20;
 
         doc.font('Helvetica-Bold');
-        doc.text('Grand Total:', 400, position);
-        doc.text(`INR ${order.totalPrice}`, 500, position, { align: 'right' });
+        doc.text(`Grand Total: INR ${order.totalPrice}`, 400, y);
 
-        // 7. Footer
-        doc.fontSize(10).text('Thank you for shopping with HighPhaus.', 50, 700, { align: 'center', width: 500 });
-
+        // --- FOOTER ---
+        doc
+            .fontSize(10)
+            .text('Thank you for shopping with SLOOK.', 50, 700, { align: 'center', width: 500 });
 
         doc.end();
 
     } catch (error) {
-        console.error("Invoice Gen Error:", error);
-        res.status(500).json({ message: "Invoice generation failed" });
+        console.error("INVOICE ERROR:", error);
+        // If headers already sent (stream started), we can't send JSON error
+        if (!res.headersSent) {
+            res.status(500).json({ message: "Failed to generate invoice." });
+        }
     }
 };
 

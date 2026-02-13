@@ -18,6 +18,9 @@ router.delete('/cards/:id', protect, removeCard);
 router.get('/profile', protect, require('../controllers/userController').getUserProfile); // Added Sync Route
 router.put('/profile', protect, updateProfile);
 
+// History (AI)
+router.post('/history', protect, require('../controllers/userController').recordView);
+
 // Notifications
 // Notification Routes
 router.get('/notifications', protect, getNotifications);

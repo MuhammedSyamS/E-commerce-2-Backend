@@ -1,15 +1,70 @@
 const Product = require('../models/Product');
+const { logStockChange } = require('../utils/stockUtils');
 
 // Fetch all
+// Fetch all (with Search, Filter, Sort)
 exports.getProducts = async (req, res) => {
   try {
-    const { category } = req.query;
+    const { keyword, category, minPrice, maxPrice, sort } = req.query;
+
     let query = {};
-    if (category && category !== 'All' && category !== 'undefined') {
-      query = { category };
+
+    // 1. Search Keyword (Name or Description)
+    if (keyword) {
+      query.$or = [
+        { name: { $regex: keyword, $options: 'i' } },
+        { description: { $regex: keyword, $options: 'i' } },
+        { tags: { $regex: keyword, $options: 'i' } }
+      ];
     }
-    const products = await Product.find(query);
-    console.log(`DEBUG: Sending ${products.length} products. Sample Stock:`, products.slice(0, 3).map(p => ({ name: p.name, stock: p.countInStock })));
+
+    // 2. Category Filter
+    if (category && category !== 'All' && category !== 'undefined') {
+      query.category = category;
+    }
+
+    // 3. Price Filter
+    if (minPrice || maxPrice) {
+      query.price = {};
+      if (minPrice) query.price.$gte = Number(minPrice);
+      if (maxPrice) query.price.$lte = Number(maxPrice);
+    }
+
+    // 4. Variant Filters (Size, Color)
+    const { size, color } = req.query;
+    if (size) {
+      query['variants.size'] = size;
+    }
+    if (color) {
+      query['variants.color'] = color;
+    }
+
+    // 4. Sorting
+    let sortOption = { createdAt: -1 }; // Default: Newest
+    if (sort) {
+      switch (sort) {
+        case 'price-asc':
+          sortOption = { price: 1 };
+          break;
+        case 'price-desc':
+          sortOption = { price: -1 };
+          break;
+        case 'oldest':
+          sortOption = { createdAt: 1 };
+          break;
+        case 'rating':
+          sortOption = { rating: -1 };
+          break;
+        default:
+          sortOption = { createdAt: -1 };
+      }
+    }
+
+    const products = await Product.find(query).sort(sortOption);
+
+    // Debug Log (Optional, remove in production)
+    console.log(`GET /products: Found ${products.length} items. Filters:`, { keyword, category, minPrice, maxPrice, sort });
+
     res.status(200).json(products);
 
   } catch (error) {
@@ -17,36 +72,96 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// Fetch single
+// @desc    Fetch single product by slug OR ID
+// @route   GET /api/products/:slug
+// @access  Public
 exports.getProductBySlug = async (req, res) => {
   try {
-    const product = await Product.findOne({
-      $or: [
-        { slug: req.params.slug },
-        { _id: req.params.slug.match(/^[0-9a-fA-F]{24}$/) ? req.params.slug : null }
-      ].filter(Boolean)
-    }).populate('reviews.user', 'name firstName');
+    let product = await Product.findOne({ slug: req.params.slug }).populate('reviews.user', 'name firstName');
 
-    if (product) res.json(product);
-    else res.status(404).json({ message: 'Product not found' });
+    // Fallback: Check by ID if not found by slug (and if valid ObjectId)
+    if (!product && require('mongoose').Types.ObjectId.isValid(req.params.slug)) {
+      product = await Product.findById(req.params.slug).populate('reviews.user', 'name firstName');
+    }
+
+    if (product) {
+      res.json(product);
+    } else {
+      res.status(404).json({ message: 'Product not found' });
+    }
   } catch (error) {
-    res.status(500).json({ message: "Server Error", error: error.message });
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get AI Recommendations
+// @route   GET /api/products/recommendations
+// @access  Public (Optional Auth)
+exports.getRecommendations = async (req, res) => {
+  try {
+    let recommendations = [];
+    const limit = 4;
+
+    // 1. If User Logged In & Has History
+    if (req.user) {
+      const User = require('../models/User');
+      const user = await User.findById(req.user._id).populate('recentlyViewed.product');
+
+      if (user && user.recentlyViewed.length > 0) {
+        // Extract categories and tags from history
+        const viewedCategories = user.recentlyViewed
+          .map(item => item.product?.category)
+          .filter(Boolean);
+
+        // Find products in these categories, excluding already viewed
+        const viewedIds = user.recentlyViewed.map(item => item.product?._id);
+
+        if (viewedCategories.length > 0) {
+          recommendations = await Product.find({
+            category: { $in: viewedCategories },
+            _id: { $nin: viewedIds }
+          }).limit(limit);
+        }
+      }
+    }
+
+    // 2. Fallback: Best Sellers or New Arrivals if no personal recs
+    if (recommendations.length < limit) {
+      const fallback = await Product.find({
+        _id: { $nin: recommendations.map(p => p._id) },
+        isBestSeller: true
+      }).limit(limit - recommendations.length);
+      recommendations = [...recommendations, ...fallback];
+    }
+
+    // 3. Final Fallback: Just get any products
+    if (recommendations.length < limit) {
+      const filler = await Product.find({
+        _id: { $nin: recommendations.map(p => p._id) }
+      }).limit(limit - recommendations.length);
+      recommendations = [...recommendations, ...filler];
+    }
+
+    res.json(recommendations);
+  } catch (error) {
+    console.error("Recommendation Error:", error);
+    res.status(500).json({ message: "Failed to fetch recommendations" });
   }
 };
 
 // Create review (Fixes 500 error & Image Upload)
 // Create review (Fixes 500 error & Image Upload)
+// Create review (Fixes 500 error & Image Upload & Verified Purchase)
 exports.createProductReview = async (req, res) => {
-  const { rating, comment, images } = req.body; // Expect images array
+  const { rating, comment, images, videos } = req.body; // Changed video to videos
   try {
     let product = await Product.findById(req.params.id);
     if (!product) return res.status(404).json({ message: 'Product not found' });
 
-    // AGGRESSIVE FIX: If reviews is not an array (e.g. legacy data was a number), FORCE RESET IT IN DB
+    // AGGRESSIVE FIX: Reset reviews if corrupted
     if (!Array.isArray(product.reviews)) {
-      console.log(`Fixing corrupted reviews for product ${product._id}`);
       await Product.updateOne({ _id: product._id }, { $set: { reviews: [], numReviews: 0, rating: 0 } });
-      product = await Product.findById(req.params.id); // Reload
+      product = await Product.findById(req.params.id);
     }
 
     // Check if user already reviewed
@@ -58,34 +173,107 @@ exports.createProductReview = async (req, res) => {
       return res.status(400).json({ message: 'Product already reviewed' });
     }
 
-    // Construct Name: "Aditya S." or "Aditya Sharma"
-    let userName = req.user.firstName || req.user.name || "User";
-    if (req.user.lastName) userName += ` ${req.user.lastName}`; // "Aditya Sharma"
+    // --- VERIFIED PURCHASE CHECK ---
+    const Order = require('../models/Order');
+    // Find any PAID order by this user containing this product
+    const verifiedOrder = await Order.findOne({
+      user: req.user._id,
+      isPaid: true,
+      "orderItems.product": product._id
+    });
+    const isVerified = !!verifiedOrder;
+    // -------------------------------
 
-    // Limit images to 4
-    const validImages = Array.isArray(images) ? images.slice(0, 4) : [];
+    let userName = req.user.firstName || req.user.name || "User";
+    if (req.user.lastName) userName += ` ${req.user.lastName}`;
+
+    const validImages = Array.isArray(images) ? images : [];
+    const validVideos = Array.isArray(videos) ? videos : []; // Handle array
 
     const review = {
       name: userName,
       rating: Number(rating),
       comment,
       images: validImages,
+      videos: validVideos, // Store videos array
       user: req.user._id,
+      isVerifiedPurchase: isVerified, // AUTO-SET
+      helpful: []
     };
 
     product.reviews.push(review);
 
-    // Recalculate Stats Immediately
     product.numReviews = product.reviews.length;
     product.rating = product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length;
 
-    console.log("Saving review to DB...", review);
-    const savedProduct = await product.save();
-    console.log("Review saved! Total reviews now:", savedProduct.reviews.length);
-
+    await product.save();
     res.status(201).json({ message: 'Review added successfully' });
   } catch (error) {
     console.error("Review Submission Error:", error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// Toggle Review Helpful Vote
+exports.toggleReviewHelpful = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id);
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+
+    const review = product.reviews.id(req.params.reviewId);
+    if (!review) return res.status(404).json({ message: 'Review not found' });
+
+    // Check if user already found it helpful
+    const userId = req.user._id;
+    const isHelpful = review.helpful.includes(userId);
+
+    if (isHelpful) {
+      // Un-vote
+      review.helpful.pull(userId);
+    } else {
+      // Vote
+      review.helpful.push(userId);
+    }
+
+    await product.save();
+    res.json({ message: 'Vote updated', helpfulCount: review.helpful.length, isHelpful: !isHelpful });
+  } catch (error) {
+    console.error("Helpful Vote Error:", error);
+    res.status(500).json({ message: 'Vote failed' });
+  }
+};
+
+// Get Public Reviews (All)
+exports.getPublicReviews = async (req, res) => {
+  try {
+    const products = await Product.find({ 'reviews.0': { $exists: true } });
+    let allReviews = [];
+
+    products.forEach(product => {
+      if (product.reviews && Array.isArray(product.reviews)) {
+        product.reviews.forEach(review => {
+          if (review.isApproved !== false) { // Only show approved/public reviews
+            allReviews.push({
+              _id: review._id,
+              productName: product.name,
+              productSlug: product.slug,
+              productImage: product.image,
+              review: review
+            });
+          }
+        });
+      }
+    });
+
+    // Sort by Newest
+    allReviews.sort((a, b) => {
+      const dateA = new Date(a.review.createdAt || 0);
+      const dateB = new Date(b.review.createdAt || 0);
+      return dateB - dateA;
+    });
+
+    res.json(allReviews);
+  } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
@@ -284,7 +472,10 @@ exports.createProduct = async (req, res) => {
     pushUtils.sendToAll(
       "New Drop Alert!",
       `Check out our latest arrival: ${createdProduct.name}`,
-      { url: `/product/${createdProduct.slug}` }
+      {
+        url: `/product/${createdProduct.slug}`,
+        image: createdProduct.image
+      }
     );
 
     res.status(201).json(createdProduct);
@@ -303,6 +494,10 @@ exports.updateProduct = async (req, res) => {
     const product = await Product.findById(req.params.id);
 
     if (product) {
+      // CAPTURE OLD STATE
+      const oldStock = product.countInStock;
+      const oldVariants = product.variants ? product.variants.map(v => v.toObject()) : [];
+
       product.name = name || product.name;
       product.price = price || product.price;
       product.description = description || product.description;
@@ -310,17 +505,66 @@ exports.updateProduct = async (req, res) => {
       product.images = images || product.images;
       product.category = category || product.category;
       product.countInStock = (countInStock !== undefined && countInStock !== '') ? Number(countInStock) : product.countInStock;
+
+      // ... other fields ...
       product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
       product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
       product.specs = specs !== undefined ? specs : product.specs;
       product.tags = tags !== undefined ? tags : product.tags;
-      // NEW
       product.video = video || product.video;
       product.variants = variants || product.variants;
       product.seo = seo || product.seo;
       product.richDescription = richDescription || product.richDescription;
 
       const updatedProduct = await product.save();
+
+      // LOG MAIN STOCK CHANGE
+      if (oldStock !== updatedProduct.countInStock) {
+        logStockChange({
+          productId: product._id,
+          oldStock: oldStock,
+          newStock: updatedProduct.countInStock,
+          reason: 'Admin Adjustment',
+          referenceId: req.user._id,
+          adminId: req.user._id,
+          note: `Direct update via Admin Panel`
+        });
+      }
+
+      // LOG VARIANT CHANGES
+      // Heuristic: Match by Size/Color and check stock
+      if (updatedProduct.variants && updatedProduct.variants.length > 0) {
+        updatedProduct.variants.forEach(newVar => {
+          const oldVar = oldVariants.find(ov => ov.size === newVar.size && ov.color === newVar.color);
+          if (oldVar) {
+            if (oldVar.stock !== newVar.stock) {
+              logStockChange({
+                productId: product._id,
+                variant: { size: newVar.size, color: newVar.color },
+                oldStock: oldVar.stock,
+                newStock: newVar.stock,
+                reason: 'Admin Adjustment',
+                referenceId: req.user._id,
+                adminId: req.user._id,
+                note: `Variant Stock Adjusted`
+              });
+            }
+          } else {
+            // New Variant Added (treat old stock as 0)
+            logStockChange({
+              productId: product._id,
+              variant: { size: newVar.size, color: newVar.color },
+              oldStock: 0,
+              newStock: newVar.stock,
+              reason: 'Admin Adjustment',
+              referenceId: req.user._id,
+              adminId: req.user._id,
+              note: `New Variant Created`
+            });
+          }
+        });
+      }
+
       res.json(updatedProduct);
     } else {
       res.status(404).json({ message: 'Product not found' });
@@ -383,5 +627,21 @@ exports.deleteProduct = async (req, res) => {
     }
   } catch (error) {
     res.status(500).json({ message: "Product deletion failed" });
+  }
+};
+
+// @desc    Get Stock Logs for a Product
+// @route   GET /api/products/:id/stock-logs
+// @access  Private/Admin
+exports.getStockLogs = async (req, res) => {
+  try {
+    const StockLog = require('../models/StockLog');
+    const logs = await StockLog.find({ product: req.params.id })
+      .populate('adminUser', 'name email firstName')
+      .sort({ createdAt: -1 });
+    res.json(logs);
+  } catch (error) {
+    console.error("Stock Log Fetch Error:", error);
+    res.status(500).json({ message: "Failed to fetch stock logs" });
   }
 };

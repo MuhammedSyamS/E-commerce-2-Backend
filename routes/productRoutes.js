@@ -11,7 +11,8 @@ const {
   getUserReviews,
   createProduct,
   updateProduct,
-  deleteProduct
+  deleteProduct,
+  toggleReviewHelpful
 } = require('../controllers/productController');
 
 // Import your authentication middleware
@@ -25,11 +26,25 @@ const { protect, admin, manager } = require('../middleware/authMiddleware');
 router.get('/', getProducts);
 
 /**
+ * @route   GET /api/products/recommendations
+ * @desc    Fetch AI recommendations
+ * @access  Public
+ */
+router.get('/recommendations', require('../controllers/productController').getRecommendations);
+
+/**
  * @route   GET /api/products/reviews/featured
  * @desc    Fetch latest reviews for home page
  * @access  Public
  */
 router.get('/reviews/featured', getFeaturedReviews);
+
+/**
+ * @route   GET /api/products/reviews/all
+ * @desc    Fetch ALL reviews for Reviews Page
+ * @access  Public
+ */
+router.get('/reviews/all', require('../controllers/productController').getPublicReviews);
 
 /**
  * @route   GET /api/products/reviews/my-reviews
@@ -74,6 +89,13 @@ router.delete('/:id', protect, manager, deleteProduct);
  */
 router.get('/admin/reviews', protect, manager, require('../controllers/productController').getAllReviews);
 
+/**
+ * @route   GET /api/products/:id/stock-logs
+ * @desc    Get stock history logs
+ * @access  Private/Admin/Manager
+ */
+router.get('/:id/stock-logs', protect, manager, require('../controllers/productController').getStockLogs);
+
 // REVIEWS (User)
 /**
  * @route   POST /api/products/:id/reviews
@@ -92,5 +114,6 @@ router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 // CRITICAL: Export the router so index.js can use it
 router.put('/:id/reviews/:reviewId/toggle', protect, manager, require('../controllers/productController').toggleReviewVisibility);
 router.put('/:id/reviews/:reviewId/reply', protect, manager, require('../controllers/productController').replyToReview);
+router.put('/:id/reviews/:reviewId/helpful', protect, require('../controllers/productController').toggleReviewHelpful);
 
 module.exports = router;

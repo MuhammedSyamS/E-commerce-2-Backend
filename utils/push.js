@@ -12,12 +12,19 @@ webpush.setVapidDetails('mailto:admin@highphaus.com', publicVapidKey, privateVap
 exports.sendToUser = async (userId, title, message, data = {}) => {
     try {
         // 1. Save to DB History
+        // data.image and data.url should be passed here if available
         await Notification.create({ user: userId, title, message, type: 'order', data });
 
         // 2. Send Push
         const user = await User.findById(userId);
         if (user && user.pushSubscription) {
-            const payload = JSON.stringify({ title, body: message, ...data });
+            // Payload: title, body, icon/image, data: { url: ... }
+            const payload = JSON.stringify({
+                title,
+                body: message,
+                image: data.image, // Product Image
+                url: data.url     // Deep link
+            });
             await webpush.sendNotification(user.pushSubscription, payload);
             console.log(`Push sent to user ${userId}`);
         }
@@ -29,16 +36,19 @@ exports.sendToUser = async (userId, title, message, data = {}) => {
 // Send to ALL subscribers (Marketing / New Drops)
 exports.sendToAll = async (title, message, data = {}) => {
     try {
-        // 1. Save to DB Global History (optional, or per user? Global is better for storage)
-        // We'll just create one "System" notification that effectively matches all in a real app,
-        // but for this simple app, we might not save 1000 records. Let's save one global.
+        // 1. Save to DB Global History
         await Notification.create({ title, message, type: 'promo', data });
 
         // 2. Fetch all subscribed users
         const users = await User.find({ pushSubscription: { $exists: true } });
 
         console.log(`Sending Broadcast Push to ${users.length} users...`);
-        const payload = JSON.stringify({ title, body: message, ...data });
+        const payload = JSON.stringify({
+            title,
+            body: message,
+            image: data.image,
+            url: data.url
+        });
 
         // Send in parallel (with robust error handling)
         const promises = users.map(u =>

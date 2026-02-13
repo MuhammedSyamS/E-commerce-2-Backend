@@ -6,22 +6,20 @@ const sendEmail = async (options) => {
     // 1. Check if we have real credentials
     if (process.env.EMAIL_USER && process.env.EMAIL_PASS) {
         // Assume Gmail if not specified, or use Host
-        const config = {
+        // Robust Gmail Configuration
+        transporter = nodemailer.createTransport({
+            service: 'gmail',
+            host: 'smtp.gmail.com', // Explicit Host
+            port: 587,              // Explicit Port
+            secure: false,          // False for 587
             auth: {
                 user: process.env.EMAIL_USER,
                 pass: process.env.EMAIL_PASS
+            },
+            tls: {
+                rejectUnauthorized: false // Fix for some local dev environments
             }
-        };
-
-        if (process.env.EMAIL_HOST) {
-            config.host = process.env.EMAIL_HOST;
-            config.port = process.env.EMAIL_PORT || 587;
-        } else {
-            // Default to Gmail service if using gmail address, or just standard smtp
-            config.service = 'gmail';
-        }
-
-        transporter = nodemailer.createTransport(config);
+        });
     } else {
         // 2. Fallback to Ethereal (Dev Mode)
         const testAccount = await nodemailer.createTestAccount();
@@ -42,7 +40,7 @@ const sendEmail = async (options) => {
     }
 
     const mailOptions = {
-        from: `HighPhaus <${process.env.EMAIL_USER || 'admin@highphaus.com'}>`,
+        from: `"SLOOK Support" <${process.env.EMAIL_USER}>`,
         to: options.email,
         subject: options.subject,
         html: options.html,

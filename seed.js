@@ -1,245 +1,156 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const Product = require('./models/Product'); // CORRECT: Import the actual model
 
 dotenv.config();
 
-// CORRECT SCHEMA (Matches server/models/Product.js)
-const productSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  slug: { type: String, required: true, unique: true },
-  price: { type: Number, required: true },
-  category: { type: String, required: true },
-  image: { type: String, required: true },
-  hoverImage: { type: String },
-  isBestSeller: { type: Boolean, default: false },
-  isNewArrival: { type: Boolean, default: false },
-
-  // FIX: reviews must be an Array, not a Number
-  reviews: { type: Array, default: [] },
-  numReviews: { type: Number, default: 0 },
-  rating: { type: Number, default: 0 },
-
-  description: { type: String }
-});
-
-const Product = mongoose.models.Product || mongoose.model('Product', productSchema);
-
 const products = [
-  // --- RINGS ---
+  // --- ELECTRONICS ---
   {
-    name: "Eagle Adjustable Ring",
-    slug: "eagle-adjustable-ring",
-    price: 799,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
+    name: "Noise-Cancelling Headphones",
+    slug: "noise-cancelling-headphones",
+    price: 15499,
+    category: "Electronics",
+    image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 142,
+    numReviews: 320,
     reviews: [],
     rating: 4.8,
-    description: "Handcrafted 925 sterling silver eagle motif with an adjustable band for a perfect fit."
+    description: "Premium wireless headphones with active noise cancellation and 30-hour battery life.",
+    countInStock: 50
   },
   {
-    name: "Ocean Wave Band",
-    slug: "ocean-wave-band",
-    price: 899,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&q=80&w=800",
+    name: "Mechanical Keychron K2",
+    slug: "mechanical-keyboard-k2",
+    price: 8999,
+    category: "Electronics",
+    image: "https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    numReviews: 89,
+    numReviews: 150,
     reviews: [],
-    rating: 4.5
+    rating: 4.9,
+    description: "Wireless mechanical keyboard with Gateron Red switches and RGB backlight.",
+    countInStock: 30
   },
   {
-    name: "Interlocking Silver Ring",
-    slug: "interlocking-ring",
-    price: 1399,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
-    numReviews: 52,
-    reviews: [],
-    rating: 4.9
-  },
-  {
-    name: "Braided Silver Band",
-    slug: "braided-band",
-    price: 999,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
-    numReviews: 44,
-    reviews: [],
-    rating: 4.6
-  },
-  {
-    name: "Meteorite Texture Ring",
-    slug: "meteorite-texture-ring",
-    price: 1199,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1605100804763-247f67b3557e?auto=format&fit=crop&q=80&w=800",
+    name: "Smart Fitness Watch",
+    slug: "smart-fitness-watch",
+    price: 4999,
+    category: "Electronics",
+    image: "https://images.unsplash.com/photo-1579586337278-3befd40fd17a?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    numReviews: 11,
+    numReviews: 45,
     reviews: [],
-    rating: 4.7
-  },
-  {
-    name: "Industrial Bolt Ring",
-    slug: "industrial-bolt-ring",
-    price: 949,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    numReviews: 7,
-    reviews: [],
-    rating: 4.2
-  },
-  {
-    name: "Classic Signet Ring",
-    slug: "classic-signet",
-    price: 1599,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1611591437281-460bfbe1220a?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
-    isNewArrival: true,
-    numReviews: 210,
-    reviews: [],
-    rating: 5.0
-  },
-  {
-    name: "Minimalist Infinity Band",
-    slug: "infinity-band",
-    price: 699,
-    category: "Rings",
-    image: "https://images.unsplash.com/photo-1589128777073-263566ae5e4d?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    numReviews: 33,
-    reviews: [],
-    rating: 4.4
+    rating: 4.2,
+    description: "Track your health metrics with precision. Waterproof and durable.",
+    countInStock: 100
   },
 
-  // --- PENDANTS ---
+  // --- FASHION ---
   {
-    name: "Double Layer Choker",
-    slug: "layer-choker",
-    price: 2199,
-    category: "Pendants",
-    image: "https://images.unsplash.com/photo-1515562141207-7a88fb7ce338?auto=format&fit=crop&q=80&w=800",
+    name: "Vintage Denim Jacket",
+    slug: "vintage-denim-jacket",
+    price: 3499,
+    category: "Fashion",
+    image: "https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?auto=format&fit=crop&q=80&w=800",
+    isBestSeller: true,
+    isNewArrival: false,
+    numReviews: 88,
+    reviews: [],
+    rating: 4.7,
+    description: "Classic oversized denim jacket with a vintage wash.",
+    countInStock: 40
+  },
+  {
+    name: "Organic Cotton Tee",
+    slug: "organic-cotton-tee",
+    price: 999,
+    category: "Fashion",
+    image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=800",
+    isBestSeller: false,
+    isNewArrival: true,
+    numReviews: 24,
+    reviews: [],
+    rating: 4.5,
+    description: "100% organic cotton t-shirt. Breathable and sustainable.",
+    countInStock: 150
+  },
+  {
+    name: "Urban Cargo Pants",
+    slug: "urban-cargo-pants",
+    price: 2499,
+    category: "Fashion",
+    image: "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
     numReviews: 112,
     reviews: [],
-    rating: 4.8
+    rating: 4.6,
+    description: "Functional cargo pants with multiple pockets and a tapered fit.",
+    countInStock: 60
   },
+
+  // --- HOME ---
   {
-    name: "Urban Industrial Chain",
-    slug: "industrial-chain",
-    price: 2499,
-    category: "Pendants",
-    image: "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
+    name: "Minimalist Desk Lamp",
+    slug: "minimalist-desk-lamp",
+    price: 1899,
+    category: "Home",
+    image: "https://images.unsplash.com/photo-1507473888900-52e1adad54cd?auto=format&fit=crop&q=80&w=800",
+    isBestSeller: false,
     isNewArrival: true,
     numReviews: 18,
     reviews: [],
-    rating: 5.0
+    rating: 4.4,
+    description: "Sleek LED desk lamp with adjustable brightness and color temperature.",
+    countInStock: 25
   },
   {
-    name: "Lariat Anchor Chain",
-    slug: "lariat-anchor-chain",
-    price: 1899,
-    category: "Pendants",
-    image: "https://images.unsplash.com/photo-1611085583191-a3b181a88401?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    numReviews: 3,
-    reviews: [],
-    rating: 4.0
-  },
-  {
-    name: "Astro Compass Pendant",
-    slug: "compass-pendant",
-    price: 1799,
-    category: "Pendants",
-    image: "https://images.unsplash.com/photo-1599643478518-17488fbbcd75?auto=format&fit=crop&q=80&w=800",
+    name: "Ceramic Plant Pot",
+    slug: "ceramic-plant-pot",
+    price: 799,
+    category: "Home",
+    image: "https://images.unsplash.com/photo-1485955900006-10f4d324d411?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
-    isNewArrival: true,
-    numReviews: 94,
-    reviews: [],
-    rating: 4.9
-  },
-  {
-    name: "Geometric Prism Charm",
-    slug: "prism-pendant",
-    price: 1299,
-    category: "Pendants",
-    image: "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    numReviews: 22,
-    reviews: [],
-    rating: 4.3
-  },
-
-  // --- BRACELETS ---
-  {
-    name: "Snake Chain Anklet",
-    slug: "snake-anklet",
-    price: 749,
-    category: "Bracelets",
-    image: "https://images.unsplash.com/photo-1611652022419-a9419f74343d?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
-    numReviews: 31,
-    reviews: [],
-    rating: 4.5
-  },
-  {
-    name: "Heavy Link Curb Bracelet",
-    slug: "curb-bracelet",
-    price: 2899,
-    category: "Bracelets",
-    image: "https://images.unsplash.com/photo-1611955723041-94970f90240d?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: true,
-    isNewArrival: true,
+    isNewArrival: false,
     numReviews: 56,
     reviews: [],
-    rating: 4.8
-  },
-  {
-    name: "Handmade Bamboo Cuff",
-    slug: "bamboo-cuff",
-    price: 1899,
-    category: "Bracelets",
-    image: "https://images.unsplash.com/photo-1573408301185-a1d31e66754a?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    isNewArrival: true,
-    numReviews: 12,
-    reviews: [],
-    rating: 4.2
+    rating: 4.8,
+    description: "Hand-glazed ceramic pot, perfect for indoor plants.",
+    countInStock: 80
   },
 
-  // --- EARRINGS ---
+  // --- ACCESSORIES ---
   {
-    name: "Hammered Silver Hoops",
-    slug: "hammered-silver-hoops",
-    price: 799,
-    category: "Earrings",
-    image: "https://images.unsplash.com/photo-1535632066927-ab7c9ab60908?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
-    numReviews: 19,
-    reviews: [],
-    rating: 4.5
-  },
-  {
-    name: "Cyberpunk Studs",
-    slug: "cyber-studs",
-    price: 499,
-    category: "Earrings",
-    image: "https://images.unsplash.com/photo-1588444839138-042230498c2b?auto=format&fit=crop&q=80&w=800",
+    name: "Leather Laptop Backpack",
+    slug: "leather-laptop-backpack",
+    price: 5999,
+    category: "Accessories",
+    image: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
-    isNewArrival: true,
+    isNewArrival: false,
     numReviews: 204,
     reviews: [],
-    rating: 4.9
+    rating: 4.9,
+    description: "Genuine leather backpack with padded laptop compartment.",
+    countInStock: 20
+  },
+  {
+    name: "Polarized Wayfarers",
+    slug: "polarized-wayfarers",
+    price: 2199,
+    category: "Accessories",
+    image: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&q=80&w=800",
+    isBestSeller: false,
+    isNewArrival: true,
+    numReviews: 42,
+    reviews: [],
+    rating: 4.3,
+    description: "Classic wayfarer sunglasses with UV400 polarized lenses.",
+    countInStock: 45
   }
 ];
 
@@ -247,10 +158,13 @@ const seedDatabase = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("Miso Studio DB Connected for Fresh Seed...");
+
     await Product.deleteMany();
     console.log("All previous items removed.");
+
     await Product.insertMany(products);
     console.log(`${products.length} Premium Silver Products Seeded Successfully!`);
+
     process.exit(0);
   } catch (error) {
     console.error("Seeding Error:", error.message);

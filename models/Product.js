@@ -6,8 +6,11 @@ const reviewSchema = new mongoose.Schema({
   comment: { type: String, required: true },
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
   images: [{ type: String }], // Array of Base64 strings (Max 4)
+  videos: [{ type: String }], // Array of Base64 strings (Max 2) - CHANGED from single 'video'
   isApproved: { type: Boolean, default: true }, // Moderation
-  adminResponse: { type: String } // Reply
+  adminResponse: { type: String }, // Reply
+  isVerifiedPurchase: { type: Boolean, default: false }, // NEW: Verified Badge
+  helpful: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }] // NEW: Helpful Votes
 }, { timestamps: true });
 
 const productSchema = new mongoose.Schema({
@@ -25,6 +28,7 @@ const productSchema = new mongoose.Schema({
     value: { type: String, required: true }
   }], // Dynamic Specifications
   tags: [{ type: String }], // Custom Tags (e.g. "New Arrival", "Best Seller")
+  isNewArrival: { type: Boolean, default: false }, // NEW: Optimized Flag
   isBestSeller: { type: Boolean, default: false }, // Keeping for backward compat, but tags will supersede
   discountPrice: { type: Number, default: 0 }, // Sale Price
   isFlashSale: { type: Boolean, default: false },

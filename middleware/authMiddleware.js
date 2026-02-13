@@ -18,7 +18,8 @@ const protect = async (req, res, next) => {
 
       // 4. Find user (checking both 'id' and '_id' for flexibility)
       const userId = decoded.id || decoded._id;
-      req.user = await User.findById(userId).select('-password');
+      req.user = await User.findById(decoded.id).select('-password');
+      // console.log("Auth Middleware User:", req.user?.email, req.user?.role, req.user?.isAdmin); 
 
       if (!req.user) {
         return res.status(401).json({ message: 'User not found, access denied' });

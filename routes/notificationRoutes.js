@@ -5,13 +5,15 @@ const Notification = require('../models/Notification');
 const User = require('../models/User');
 const { protect, admin } = require('../middleware/authMiddleware');
 
-// CONFIGURE VAPID KEYS (Should come from ENV, but hardcoded for demo simplicity/stability if env fails)
-// REPLACE THESE WITH KEYS FROM YOUR TERMINAL OUTPUT
 // CONFIGURE VAPID KEYS
-const publicVapidKey = 'BBpKl_F-zOM-ujMnUcgudUiVjEIELl0oarZBM8tF9_HAn0bx_MUhxym_5anPaEA653crE40tnwxdAzo1HlIfIh4';
-const privateVapidKey = '8YJkTEUta_Pf27ti54Tf8RsgqP8a7h-XRPeMODLEcuw';
+const publicVapidKey = process.env.VAPID_PUBLIC_KEY;
+const privateVapidKey = process.env.VAPID_PRIVATE_KEY;
 
-webpush.setVapidDetails('mailto:admin@highphaus.com', publicVapidKey, privateVapidKey);
+if (!publicVapidKey || !privateVapidKey) {
+    console.error("VAPID KEYS MISSING IN ENV");
+} else {
+    webpush.setVapidDetails('mailto:admin@highphaus.com', publicVapidKey, privateVapidKey);
+}
 
 // 1. Subscribe User to Push
 router.post('/subscribe', protect, async (req, res) => {
@@ -52,6 +54,24 @@ router.post('/send', protect, admin, async (req, res) => {
     });
 
     res.json({ message: `Push sent to ${users.length} devices` });
+});
+
+// 4. Mark Single Notification as Read
+router.put('/:id/read', protect, async (req, res) => {
+    const notif = await Notification.findById(req.params.id);
+    if (notif) {
+        notif.isRead = true;
+        await notif.save();
+        res.json({ message: 'Marked as read' });
+    } else {
+        res.status(404).json({ message: 'Notification not found' });
+    }
+});
+
+// 5. Mark ALL as Read
+router.put('/read-all', protect, async (req, res) => {
+    await Notification.updateMany({ user: req.user._id, isRead: false }, { isRead: true });
+    res.json({ message: 'All marked as read' });
 });
 
 module.exports = router;

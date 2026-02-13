@@ -44,9 +44,17 @@ const orderSchema = new mongoose.Schema({
   deliveryPartner: { type: String }, // New Field
   trackingId: { type: String },      // New Field
   paymentMethod: { type: String, required: true },
+  couponCode: { type: String },      // Coupon Applied
+  discountAmount: { type: Number, default: 0 }, // Discount Value
   totalPrice: { type: Number, required: true, default: 0.0 },
   isPaid: { type: Boolean, required: true, default: false },
   paidAt: { type: Date },
+  paymentResult: {
+    id: { type: String },
+    status: { type: String },
+    update_time: { type: String },
+    email_address: { type: String },
+  },
   isDispatched: { type: Boolean, required: true, default: false },
   isDelivered: { type: Boolean, required: true, default: false },
   deliveredAt: { type: Date },

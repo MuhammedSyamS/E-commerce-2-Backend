@@ -1,5 +1,7 @@
 require('dotenv').config();
 const express = require('express');
+console.log("SERVER STARTUP: Loading Environment...");
+console.log("RAZORPAY_KEY_ID Loaded:", process.env.RAZORPAY_KEY_ID ? "YES (" + process.env.RAZORPAY_KEY_ID.substring(0, 5) + "...)" : "NO");
 const mongoose = require('mongoose');
 const cors = require('cors');
 
@@ -36,15 +38,17 @@ app.use('/api/auth', authRoutes); // Reverting to /api/auth if frontend uses it,
 // Step 1525 showed: app.use('/api/users', authRoutes); app.use('/api/users', userRoutes);
 // This means both auth and user routes are under /api/users.
 app.use('/api/users', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/products', productRoutes);
-app.use('/api/orders', orderRoutes);
+app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/products', require('./routes/productRoutes'));
+app.use('/api/orders', require('./routes/orderRoutes'));
+app.use('/api/coupons', require('./routes/couponRoutes')); // New Coupon Route
 app.use('/api/returns', returnRoutes); // NEW MODULE
 app.use('/api/reports', reportRoutes); // NEW
 app.use('/api/marketing', marketingRoutes);
 // app.use('/api/reports', reportRoutes); // Removed duplicate
 app.use('/api/settings', require('./routes/settingsRoutes')); // NEW
 app.use('/api/cart', cartRoutes);
+app.use('/api/wishlist', require('./routes/wishlistRoutes')); // Re-enabled
 app.use('/api/notifications', require('./routes/notificationRoutes')); // NEW
 app.use('/api/payments', require('./routes/paymentRoutes')); // RAZORPAY
 const uploadRoutes = require('./routes/uploadRoutes');

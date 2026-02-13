@@ -29,6 +29,12 @@ const createReturnRequest = async (req, res) => {
             return res.status(400).json({ message: 'Return request already exists for this item.' });
         }
 
+        // Validate Video Proof (Unboxing Video)
+        const hasVideo = images && images.some(url => url.match(/\.(mp4|mov|avi|mkv|webm)$/i));
+        if (!hasVideo) {
+            return res.status(400).json({ message: 'Unboxing Video is REQUIRED for returns/exchanges.' });
+        }
+
         // Create Return Doc
         const newReturn = new Return({
             order: orderId,

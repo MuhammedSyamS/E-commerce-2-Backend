@@ -10,10 +10,14 @@ const {
   updateOrderStatus,
   cancelOrderItem,
   deleteOrder,
-  updateOrderToPaid
+  updateOrderToPaid,
+  trackOrder // Imported
 } = require('../controllers/orderController');
 const { generateInvoice } = require('../controllers/invoiceController');
 const { protect, admin, manager } = require('../middleware/authMiddleware');
+
+// Public Route
+router.post('/track', trackOrder);
 
 // Matches: POST /api/orders
 router.route('/').post(protect, addOrderItems);

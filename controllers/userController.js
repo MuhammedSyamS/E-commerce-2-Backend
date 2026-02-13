@@ -28,6 +28,36 @@ exports.toggleWishlist = async (req, res) => {
   }
 };
 
+// @desc    Record product view for recommendations
+// @route   POST /api/users/history
+// @access  Private
+exports.recordView = async (req, res) => {
+  try {
+    const { productId } = req.body;
+    if (!productId) return res.status(400).json({ message: "Product ID required" });
+
+    // Use findOneAndUpdate for atomic operation
+    await User.findByIdAndUpdate(req.user._id, {
+      $pull: { recentlyViewed: { product: productId } } // Remove if exists (to push to top)
+    });
+
+    const user = await User.findByIdAndUpdate(req.user._id, {
+      $push: {
+        recentlyViewed: {
+          $each: [{ product: productId, viewedAt: new Date() }],
+          $position: 0,
+          $slice: 20 // Keep last 20 views
+        }
+      }
+    }, { new: true });
+
+    res.status(200).json(user.recentlyViewed);
+  } catch (error) {
+    console.error("Record View Error:", error);
+    res.status(500).json({ message: "Failed to record view" });
+  }
+};
+
 // --- NEW METHODS ---
 
 // @desc    Add a new address
@@ -283,9 +313,10 @@ exports.deleteUser = async (req, res) => {
 // @access  Private/Admin
 exports.updateUserRole = async (req, res) => {
   try {
-    console.log(`UPDATE ROLE REQUEST for ${req.params.id}:`, req.body);
+    console.log(`UPDATE ROLE REQUEST for ${req.params.id}:`, JSON.stringify(req.body, null, 2));
     // 1. Fetch user for checks (Protection Logic)
     const user = await User.findById(req.params.id);
+    console.log(`Current User State: Role=${user.role}, IsAdmin=${user.isAdmin}`);
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     let update = {};
@@ -295,8 +326,8 @@ exports.updateUserRole = async (req, res) => {
       const newRole = req.body.role;
 
       // PROTECTION: Prevent removing the last admin
-      if (user.role === 'admin' && newRole !== 'admin') {
-        const adminCount = await User.countDocuments({ role: 'admin' });
+      if ((user.role === 'admin' || user.isAdmin) && newRole !== 'admin') {
+        const adminCount = await User.countDocuments({ $or: [{ role: 'admin' }, { isAdmin: true }] });
         console.log(`Admin Count Check: ${adminCount}`);
         if (adminCount <= 1) {
           return res.status(400).json({ message: 'Action Denied: You cannot remove the last Administrator. Please assign another Admin first.' });
@@ -333,7 +364,7 @@ exports.updateUserRole = async (req, res) => {
     // Use findByIdAndUpdate to bypass strict validation on other fields
     const updatedUser = await User.findByIdAndUpdate(req.params.id, update, { new: true });
 
-    console.log("User updated successfully:", updatedUser.role, updatedUser.permissions);
+    console.log("User updated successfully:", updatedUser.role, updatedUser.permissions, updatedUser.isAdmin);
     res.json(updatedUser);
   } catch (error) {
     console.error("UPDATE ROLE ERROR:", error);

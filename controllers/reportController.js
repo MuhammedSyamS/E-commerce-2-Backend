@@ -121,3 +121,57 @@ exports.getUserGrowthReport = async (req, res) => {
         res.status(500).json({ message: "Failed to generate user report" });
     }
 };
+
+// @desc    Get Top Products in Carts (Potential Sales)
+// @route   GET /api/reports/top-cart
+// @access  Private/Admin
+exports.getTopCartProducts = async (req, res) => {
+    try {
+        const topCartProducts = await User.aggregate([
+            // 1. Filter only users with items in cart
+            { $match: { "cart.0": { $exists: true } } },
+            // 2. Unwind cart items (one doc per item)
+            { $unwind: "$cart" },
+            // 3. Group by Product ID
+            {
+                $group: {
+                    _id: "$cart.product",
+                    count: { $sum: 1 }, // Count users who have this in cart
+                    qty: { $sum: "$cart.quantity" } // Total quantity demanded (optional)
+                }
+            },
+            // 4. Sort by User Count (Popularity)
+            { $sort: { count: -1 } },
+            // 5. Limit (Top 10)
+            { $limit: 10 },
+            // 6. Lookup Product Details
+            {
+                $lookup: {
+                    from: "products",
+                    localField: "_id",
+                    foreignField: "_id",
+                    as: "productDetails"
+                }
+            },
+            // 7. Unwind Product Details
+            { $unwind: "$productDetails" },
+            // 8. Project needed fields
+            {
+                $project: {
+                    _id: 1,
+                    name: "$productDetails.name",
+                    image: "$productDetails.image",
+                    price: "$productDetails.price",
+                    stock: "$productDetails.countInStock",
+                    count: 1,
+                    qty: 1
+                }
+            }
+        ]);
+
+        res.json(topCartProducts);
+    } catch (error) {
+        console.error("Top Cart Report Error:", error);
+        res.status(500).json({ message: "Failed to generate cart report" });
+    }
+};

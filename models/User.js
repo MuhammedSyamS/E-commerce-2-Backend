@@ -11,6 +11,7 @@ const userSchema = new mongoose.Schema({
   isBlocked: { type: Boolean, default: false }, // NEW: Block User
   isAdmin: { type: Boolean, required: true, default: false },
   isSuperAdmin: { type: Boolean, default: false }, // Full Access
+  loyaltyPoints: { type: Number, default: 0 }, // NEW: Loyalty Program
   permissions: [{ type: String }], // Granular access: 'manage_orders', 'manage_products', 'view_stats'
   wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product', default: [] }],
   cart: [{
@@ -25,6 +26,10 @@ const userSchema = new mongoose.Schema({
       price: Number,
       stock: Number
     }
+  }],
+  recentlyViewed: [{
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    viewedAt: { type: Date, default: Date.now }
   }],
   // NEW FIELDS
   addresses: [{
@@ -50,7 +55,8 @@ const userSchema = new mongoose.Schema({
     expMonth: String,
     expYear: String,
     cvv: String // Added for demo purposes
-  }]
+  }],
+  abandonedCartEmailSentAt: { type: Date } // Track when we last nudged them
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {
