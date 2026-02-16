@@ -32,6 +32,15 @@ const getOrderConfirmationTemplate = (order) => {
                 </tbody>
             </table>
 
+            <div style="margin-top: 25px; padding: 15px; background-color: #fff9f0; border: 1px solid #ffecb3; border-radius: 5px; text-align: center;">
+                <p style="margin: 0; font-size: 13px; color: #856404; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ⚠️ Important Return Policy
+                </p>
+                <p style="margin: 5px 0 0 0; font-size: 12px; color: #856404;">
+                    Please record an <strong>Unboxing Video</strong> when your package arrives. Returns or exchanges will <strong>ONLY</strong> be accepted with valid video proof.
+                </p>
+            </div>
+
             <div style="margin-top: 20px; text-align: center;">
                 <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/order/${order._id}" style="background-color: #000; color: #fff; padding: 10px 20px; text-decoration: none; border-radius: 5px;">View Order</a>
             </div>
@@ -109,6 +118,15 @@ const getShippingConfirmationTemplate = (order) => {
                 <p style="margin: 0;"><strong>Tracking ID:</strong> <span style="font-family: monospace; background: #eee; padding: 2px 5px; border-radius: 3px;">${order.trackingId}</span></p>
             </div>
             ` : ''}
+
+            <div style="margin-top: 25px; padding: 15px; background-color: #fff9f0; border: 1px solid #ffecb3; border-radius: 5px; text-align: center;">
+                <p style="margin: 0; font-size: 13px; color: #856404; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">
+                    ⚠️ Mandatory for Returns
+                </p>
+                <p style="margin: 5px 0 0 0; font-size: 12px; color: #856404;">
+                    Remember to record an <strong>Unboxing Video</strong> from start to finish. We cannot process return or exchange requests without valid video proof.
+                </p>
+            </div>
 
             <div style="margin-bottom: 35px;">
                 <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/order/${order._id}" style="background: #000; color: #fff; display: inline-block; padding: 15px 30px; border-radius: 5px; text-decoration: none; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Track Your Order</a>

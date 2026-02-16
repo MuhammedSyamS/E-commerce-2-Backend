@@ -1,9 +1,8 @@
 const mongoose = require('mongoose');
 const Product = require('./models/Product');
 const Order = require('./models/Order');
-const dotenv = require('dotenv');
-
-dotenv.config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -15,6 +14,7 @@ const testStockFlow = async () => {
         // 1. Setup Test Product
         const testProduct = new Product({
             name: "Stock Test Item " + Date.now(),
+            slug: "stock-test-item-" + Date.now(),
             price: 100,
             category: "Test",
             image: "placeholder",

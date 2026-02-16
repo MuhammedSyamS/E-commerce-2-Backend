@@ -20,6 +20,24 @@ const siteSettingsSchema = new mongoose.Schema({
     emailNotifications: { type: Boolean, default: true },
     marketingEmails: { type: Boolean, default: false },
 
+    // Logistics
+    minDeliveryDays: { type: Number, default: 3 },
+    maxDeliveryDays: { type: Number, default: 7 },
+    manifestLogo: { type: String, default: '' },
+
+    // Global Scale (NEW Phase 11)
+    defaultCurrency: { type: String, default: 'INR' },
+    currencyRates: {
+        type: Map,
+        of: Number,
+        default: {
+            'USD': 0.012,
+            'EUR': 0.011,
+            'GBP': 0.0093,
+            'INR': 1
+        }
+    }
+
 }, { timestamps: true });
 
 // Singleton pattern helper: always fetch the first document

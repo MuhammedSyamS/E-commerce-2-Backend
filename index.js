@@ -1,7 +1,18 @@
 require('dotenv').config();
+const logger = require('./utils/logger');
+logger.info("SERVER STARTUP: Loading Environment...");
+
+// --- GLOBAL PROCESS ERROR HANDLERS ---
+process.on('uncaughtException', (err) => {
+  logger.error('🔥 UNCAUGHT EXCEPTION:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('🌊 UNHANDLED REJECTION:', reason);
+});
+
+logger.info("RAZORPAY_KEY_ID Loaded: %s", process.env.RAZORPAY_KEY_ID ? "YES (" + process.env.RAZORPAY_KEY_ID.substring(0, 5) + "...)" : "NO");
 const express = require('express');
-console.log("SERVER STARTUP: Loading Environment...");
-console.log("RAZORPAY_KEY_ID Loaded:", process.env.RAZORPAY_KEY_ID ? "YES (" + process.env.RAZORPAY_KEY_ID.substring(0, 5) + "...)" : "NO");
 const mongoose = require('mongoose');
 const cors = require('cors');
 
@@ -21,15 +32,64 @@ const reportRoutes = require('./routes/reportRoutes'); // NEW
 const app = express(); // 1. THIS MUST COME BEFORE APP.USE
 
 // --- MIDDLEWARE ---
-app.use(express.json({ limit: '50mb' })); // Increase payload limit for Base64 images
-app.use(cors());
+// Security Headers
+const helmet = require('helmet');
+app.use(helmet({
+  crossOriginResourcePolicy: { policy: "cross-origin" } // Allow images to be loaded from frontend
+}));
+
+// GZIP Compression
+const compression = require('compression');
+app.use(compression());
+
+// Rate Limiting
+const rateLimit = require('express-rate-limit');
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const authLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10, // Limit each IP to 10 login/register attempts per hour
+  message: "Too many attempts from this IP, please try again after an hour",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+app.use('/api', limiter);
+app.use('/api/auth', authLimiter); // Protect auth routes
+
+app.use(express.json({ limit: '50mb' }));
+
+// TIGHTEN CORS for PROD
+const allowedOrigins = [
+  'http://localhost:5173', // Local Dev
+  'https://highphaus.vercel.app', // Example Production domain
+  'https://slook.luxury' // Example Alternative
+];
+
+app.use(cors({
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true
+}));
 
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => console.log('Highphaus MongoDB Connected Successfully'))
+  .then(() => logger.info('Highphaus MongoDB Connected Successfully'))
   .catch(err => {
-    console.error('Database Connection Error:', err.message);
+    logger.error('Database Connection Error: %s', err.message);
     process.exit(1);
   });
 
@@ -56,8 +116,13 @@ const path = require('path');
 
 // ...
 
-app.use('/api/notifications', require('./routes/notificationRoutes')); // NEW
+// app.use('/api/notifications', require('./routes/notificationRoutes')); // Removed Duplicate
+app.use('/api/support', require('./routes/supportRoutes')); // NEW SUPPORT SYSTEM
+app.use('/api/blog', require('./routes/blogRoutes')); // NEW BLOG SYSTEM
+app.use('/api/orders', require('./routes/invoiceRoutes'));
 app.use('/api/upload', uploadRoutes); // NEW
+app.use('/api/ai', require('./routes/aiRoutes')); // NEW Phase 11
+app.use('/', require('./routes/seoRoutes')); // ROBOTS & SITEMAP (at root)
 
 // Make uploads folder static
 app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
@@ -80,8 +145,38 @@ app.use((err, req, res, next) => {
   });
 });
 
+// --- SOCKET.IO SETUP ---
+const http = require('http');
+const { Server } = require('socket.io');
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*", // Allow all for now, lock down in prod
+    methods: ["GET", "POST"]
+  }
+});
+
+io.on('connection', (socket) => {
+  logger.info('New Socket Connection: %s', socket.id);
+
+  socket.on('disconnect', () => {
+    logger.info('Socket Disconnected: %s', socket.id);
+  });
+});
+
+// Make io accessible to our router
+app.set('socketio', io);
+
 // --- SERVER START ---
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+const PORT = process.env.PORT || 5005;
+server.listen(PORT, () => {
+  logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+}).on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error(`❌ Port ${PORT} is already in use.`);
+  } else {
+    logger.error('❌ Server Error: %o', err);
+  }
+  process.exit(1);
 });

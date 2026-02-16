@@ -1,4 +1,7 @@
 const User = require('../models/User');
+const logger = require('../utils/logger');
+
+logger.info("UserController loaded");
 
 // @desc    Toggle product in wishlist
 // @route   POST /api/users/wishlist
@@ -31,6 +34,76 @@ exports.toggleWishlist = async (req, res) => {
 // @desc    Record product view for recommendations
 // @route   POST /api/users/history
 // @access  Private
+// @desc    Google Login / Register
+// @route   POST /api/users/google-login
+// @access  Public
+exports.googleLogin = async (req, res) => {
+  try {
+    const { token } = req.body;
+    const { OAuth2Client } = require('google-auth-library');
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); // Ensure env var is set or handle gracefully
+
+    const ticket = await client.verifyIdToken({
+      idToken: token,
+      audience: process.env.GOOGLE_CLIENT_ID
+    });
+
+    const { name, email, picture, sub: googleId } = ticket.getPayload();
+
+    // Check if user exists (by googleId OR email)
+    let user = await User.findOne({ $or: [{ googleId }, { email }] });
+
+    if (user) {
+      // Connect Google ID if not already connected (e.g. detailed email match)
+      if (!user.googleId) {
+        user.googleId = googleId;
+        if (!user.avatar) user.avatar = picture;
+        await user.save();
+      }
+    } else {
+      // Create New User
+      // Generate random password
+      const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+
+      // Split name
+      const nameParts = name.split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : 'User';
+
+      user = await User.create({
+        firstName,
+        lastName,
+        email,
+        password: randomPassword,
+        googleId,
+        avatar: picture
+      });
+    }
+
+    const generateToken = (id) => {
+      const jwt = require('jsonwebtoken');
+      return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    };
+
+    res.json({
+      _id: user._id,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      email: user.email,
+      isAdmin: user.isAdmin,
+      role: user.role,
+      token: generateToken(user._id),
+      avatar: user.avatar,
+      permissions: user.permissions,
+      cart: user.cart,
+      wishlist: user.wishlist
+    });
+
+  } catch (error) {
+    console.error("Google Login Error:", error);
+    res.status(400).json({ message: "Google Login Failed" });
+  }
+};
 exports.recordView = async (req, res) => {
   try {
     const { productId } = req.body;
@@ -116,6 +189,28 @@ exports.updateProfile = async (req, res) => {
     }
 
     if (req.body.password) {
+      // REQUIRE OTP FOR PASSWORD CHANGE
+      const { otp } = req.body;
+      if (!otp) {
+        return res.status(400).json({ message: "Verification code is required to change password." });
+      }
+
+      if (!user.otp || user.otp !== otp || user.otpExpires < Date.now()) {
+        return res.status(400).json({ message: "Invalid or expired verification code." });
+      }
+
+      if (!req.body.currentPassword) {
+        return res.status(400).json({ message: "Current password is required to set a new password." });
+      }
+
+      // Check if current password matches
+      if (!(await user.matchPassword(req.body.currentPassword))) {
+        return res.status(400).json({ message: "The current password you entered is incorrect." });
+      }
+
+      // Clear OTP after use
+      user.otp = undefined;
+      user.otpExpires = undefined;
       user.password = req.body.password;
     }
 
@@ -128,10 +223,14 @@ exports.updateProfile = async (req, res) => {
       email: updatedUser.email,
       phone: updatedUser.phone,
       isAdmin: updatedUser.isAdmin,
+      role: updatedUser.role,
       token: req.headers.authorization.split(' ')[1],
       addresses: updatedUser.addresses,
       wishlist: updatedUser.wishlist,
-      cart: updatedUser.cart
+      avatar: updatedUser.avatar,
+      loyaltyPoints: updatedUser.loyaltyPoints,
+      membershipTier: updatedUser.membershipTier,
+      permissions: updatedUser.permissions
     });
   } catch (error) {
     console.error("UPDATE ERROR:", error);
@@ -284,8 +383,32 @@ exports.removeCard = async (req, res) => {
 // @access  Private/Admin
 exports.getUsers = async (req, res) => {
   try {
-    const users = await User.find({});
-    res.json(users);
+    const pageSize = Number(req.query.pageSize) || 20;
+    const page = Number(req.query.page) || 1;
+    const search = req.query.search || '';
+
+    // Search Filter
+    const query = search ? {
+      $or: [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ]
+    } : {};
+
+    const count = await User.countDocuments(query);
+    const users = await User.find(query)
+      .select('-password')
+      .limit(pageSize)
+      .skip(pageSize * (page - 1))
+      .sort({ createdAt: -1 });
+
+    res.json({
+      users,
+      page,
+      pages: Math.ceil(count / pageSize),
+      total: count
+    });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch users" });
   }
@@ -434,5 +557,194 @@ exports.getLogs = async (req, res) => {
     res.json(logs);
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch logs" });
+  }
+};
+
+// @desc    Get Referral Stats for a user
+// @route   GET /api/users/referrals
+// @access  Private
+exports.getReferralStats = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const referredFriends = await User.find({ referredBy: user._id })
+      .select('firstName lastName email createdAt hasMadeFirstOrder')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      referralCode: user.referralCode,
+      referralEarnings: user.referralEarnings,
+      referredFriends
+    });
+  } catch (error) {
+    console.error("Referral Stats Error:", error);
+    res.status(500).json({ message: "Failed to fetch referral data" });
+  }
+};
+
+// @desc    Get all abandoned carts (Admin)
+// @route   GET /api/users/admin/abandoned-carts
+// @access  Private/Admin
+exports.getAbandonedCarts = async (req, res) => {
+  try {
+    // Users with items in cart who haven't updated in 2+ hours
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+
+    const abandonedCarts = await User.find({
+      'cart.0': { $exists: true }, // Cart is not empty
+      updatedAt: { $lt: twoHoursAgo }
+    }).select('firstName lastName email cart updatedAt abandonedCartEmailSentAt');
+
+    res.json(abandonedCarts);
+  } catch (error) {
+    console.error("Abandoned Cart Fetch Error:", error);
+    res.status(500).json({ message: "Failed to fetch abandoned carts" });
+  }
+};
+
+// @desc    Send nudge notification to user with abandoned cart
+// @route   POST /api/users/admin/nudge/:id
+// @access  Private/Admin
+exports.sendCartNudge = async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const Notification = require('../models/Notification');
+
+    // Create notification
+    await Notification.create({
+      user: user._id,
+      title: "🎁 Don't miss out on your favorites!",
+      message: `Hi ${user.firstName}, you still have ${user.cart.length} items waiting in your bag. Complete your purchase now before they sell out!`,
+      type: 'promo',
+      data: { url: '/cart' }
+    });
+
+    // Update timestamp to prevent spamming
+    user.abandonedCartEmailSentAt = new Date();
+    await user.save();
+
+    res.json({ message: "Nudge sent successfully" });
+  } catch (error) {
+    console.error("Nudge Error:", error);
+    res.status(500).json({ message: "Failed to send nudge" });
+  }
+};
+
+// @desc    Get recently viewed products
+// @route   GET /api/users/recently-viewed
+// @access  Private
+exports.getRecentlyViewed = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('recentlyViewed');
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // recentlyViewed is already sorted (newest at position 0) and sliced to max 20
+    const history = user.recentlyViewed || [];
+    const productIds = history.map(item => item.product).slice(0, 10);
+
+    const products = await Product.find({ _id: { $in: productIds } })
+      .select('name slug image price category');
+
+    // Sort products back into the history order
+    const orderedProducts = productIds.map(id => products.find(p => p._id.toString() === id.toString())).filter(p => p);
+
+    res.json(orderedProducts);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch viewed history" });
+  }
+};
+// @desc    Send OTP to user for security actions
+// @route   POST /api/users/send-otp
+// @access  Private
+exports.sendOTP = async (req, res) => {
+  try {
+    logger.info("--- SECURITY OTP REQUEST ---");
+    logger.info("User ID from req.user: %s", req.user?._id);
+
+    const user = await User.findById(req.user._id);
+    if (!user) {
+      logger.error("Error: User not found in DB for ID: %s", req.user?._id);
+      return res.status(404).json({ message: "User not found" });
+    }
+    logger.info("User found for OTP: %s", user.email);
+
+    // Generate 6 digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    user.otp = otp;
+    user.otpExpires = otpExpires;
+    await user.save();
+    logger.info("OTP saved to User document for: %s", user.email);
+
+    const sendEmail = require('../utils/sendEmail');
+    logger.info("Calling sendEmail utility for: %s", user.email);
+
+    try {
+      await sendEmail({
+        email: user.email,
+        subject: "Your Security Verification Code - SLOOK",
+        html: `
+          <div style="font-family: sans-serif; max-width: 600px; margin: auto; border: 1px solid #eee; padding: 20px;">
+            <h2 style="text-align: center; color: #000;">Verification Code</h2>
+            <p>Hello ${user.firstName},</p>
+            <p>You requested a security verification code to update your password. Please use the following code:</p>
+            <div style="background: #f4f4f4; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px;">
+              ${otp}
+            </div>
+            <p>This code will expire in 10 minutes.</p>
+            <p>If you did not request this, please ignore this email.</p>
+            <hr />
+            <p style="font-size: 10px; color: #777; text-align: center;">SLOOK - Premium Streetwear Hub</p>
+          </div>
+        `
+      });
+      logger.info("Email sent successfully according to sendEmail utility for: %s", user.email);
+    } catch (emailError) {
+      logger.error("sendEmail UTILITY FAILED: %o", emailError);
+      throw emailError; // Re-throw to be caught by outer catch
+    }
+
+    res.json({ message: "Verification code sent to your email" });
+  } catch (error) {
+    logger.error("SEND OTP ERROR DETAIL: %o", error);
+    res.status(500).json({ message: "Failed to send verification code: " + error.message });
+  }
+};
+
+// @desc    Verify OTP (Independent check if needed)
+// @route   POST /api/users/verify-otp
+// @access  Private
+exports.verifyOTP = async (req, res) => {
+  try {
+    const { otp } = req.body;
+    const user = await User.findById(req.user._id);
+
+    if (!user.otp || user.otp !== otp || user.otpExpires < Date.now()) {
+      return res.status(400).json({ message: "Invalid or expired verification code" });
+    }
+
+    res.json({ message: "Code verified successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Verification failed" });
+  }
+};
+
+// @desc    Get loyalty points history
+// @route   GET /api/users/loyalty-history
+// @access  Private
+exports.getLoyaltyHistory = async (req, res) => {
+  try {
+    const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+    const history = await LoyaltyTransaction.find({ user: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(50);
+    res.json(history);
+  } catch (error) {
+    console.error("Loyalty History Error:", error);
+    res.status(500).json({ message: "Failed to fetch loyalty history" });
   }
 };

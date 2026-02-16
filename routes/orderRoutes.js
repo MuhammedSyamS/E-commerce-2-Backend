@@ -11,13 +11,15 @@ const {
   cancelOrderItem,
   deleteOrder,
   updateOrderToPaid,
-  trackOrder // Imported
+  trackOrder,
+  lookupOrder
 } = require('../controllers/orderController');
-const { generateInvoice } = require('../controllers/invoiceController');
+const { generateInvoice, generateManifest } = require('../controllers/invoiceController');
 const { protect, admin, manager } = require('../middleware/authMiddleware');
 
 // Public Route
 router.post('/track', trackOrder);
+router.get('/lookup', lookupOrder);
 
 // Matches: POST /api/orders
 router.route('/').post(protect, addOrderItems);
@@ -38,8 +40,9 @@ router.put('/:id/pay', protect, admin, updateOrderToPaid);
 // User Cancel Route
 router.put('/:id/cancel/:itemId', protect, cancelOrderItem);
 
-// Invoice Route (Must be before Generic ID)
+// Invoice & Manifest Routes
 router.get('/:id/invoice', protect, generateInvoice);
+router.get('/:id/manifest', protect, manager, generateManifest);
 
 // Matches: GET /api/orders/:id (Must be last to avoid catching sub-routes)
 router.route('/:id').get(protect, getOrderById);

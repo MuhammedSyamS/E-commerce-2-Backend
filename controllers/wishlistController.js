@@ -64,3 +64,33 @@ exports.getWishlist = async (req, res) => {
     res.status(500).json({ message: "Error fetching wishlist" });
   }
 };
+
+exports.getSharedWishlist = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    console.log(`[DEBUG] getSharedWishlist called with userId: '${userId}'`);
+
+    // Validate ID format
+    if (!userId.match(/^[0-9a-fA-F]{24}$/)) {
+      console.log(`[DEBUG] Invalid ID format`);
+      return res.status(404).json({ message: "Invalid User ID" });
+    }
+
+    const user = await User.findById(userId).populate('wishlist');
+
+    if (!user) {
+      console.log(`[DEBUG] User not found in DB`);
+      return res.status(404).json({ message: "Wishlist not found" });
+    }
+
+    // Filter out nulls
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    // Public: Return only necessary product info (security)
+    // Actually, populate returns full product doc. That's fine for public products.
+    res.status(200).json(validWishlist);
+  } catch (error) {
+    console.error("Shared Wishlist Error:", error);
+    res.status(500).json({ message: "Error loading shared wishlist" });
+  }
+};

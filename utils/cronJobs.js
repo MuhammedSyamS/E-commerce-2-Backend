@@ -1,6 +1,8 @@
 const cron = require('node-cron');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
+const User = require('../models/User'); // ADDED
+const { logStockChange } = require('./stockUtils'); // ADDED
 
 const startCronJobs = () => {
     console.log('⏳ Cron Jobs Initialized...');
@@ -155,7 +157,7 @@ const startCronJobs = () => {
             if (users.length > 0) {
                 console.log(`📧 Found ${users.length} potential abandoned carts.`);
 
-                const { sendEmail } = require('./sendEmail'); // Lazy load to avoid circular dept issues if any
+                const sendEmail = require('./sendEmail'); // FIXED: No destructuring
                 const { getAbandonedCartTemplate } = require('./emailTemplates');
 
                 for (const user of users) {
@@ -180,6 +182,29 @@ const startCronJobs = () => {
 
         } catch (error) {
             console.error('❌ Abandoned Cart Job Error:', error.message);
+        }
+    });
+
+    // Run Daily at 3 AM for System Cleanup
+    cron.schedule('0 3 * * *', async () => {
+        console.log('🧹 Running System Cleanup (Coupons, etc.)...');
+        try {
+            const Coupon = require('../models/Coupon');
+            const now = new Date();
+
+            // 1. Deactivate Expired Coupons
+            const expired = await Coupon.updateMany(
+                { expiryDate: { $lt: now }, isActive: true },
+                { $set: { isActive: false } }
+            );
+            console.log(`✅ Deactivated ${expired.modifiedCount} expired coupons.`);
+
+            // 2. Future: Clean old logs or stale reports
+            // const Log = require('../models/Log');
+            // await Log.deleteMany({ createdAt: { $lt: thirtyDaysAgo } });
+
+        } catch (error) {
+            console.error('❌ System Cleanup Error:', error.message);
         }
     });
 };

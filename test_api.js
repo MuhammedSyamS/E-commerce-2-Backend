@@ -2,8 +2,8 @@ const axios = require('axios');
 
 const checkApi = async () => {
     try {
-        console.log("Fetching http://localhost:5000/api/products/reviews/featured ...");
-        const { data } = await axios.get('http://localhost:5000/api/products/reviews/featured');
+        console.log("Fetching http://localhost:5005/api/products/reviews/featured ...");
+        const { data } = await axios.get('http://localhost:5005/api/products/reviews/featured');
 
         console.log("\n--- API RESPONSE ---");
         console.log(`Count: ${data.length}`);

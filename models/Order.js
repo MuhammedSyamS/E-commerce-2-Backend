@@ -46,6 +46,8 @@ const orderSchema = new mongoose.Schema({
   paymentMethod: { type: String, required: true },
   couponCode: { type: String },      // Coupon Applied
   discountAmount: { type: Number, default: 0 }, // Discount Value
+  taxPrice: { type: Number, default: 0.0 },
+  shippingPrice: { type: Number, default: 0.0 },
   totalPrice: { type: Number, required: true, default: 0.0 },
   isPaid: { type: Boolean, required: true, default: false },
   paidAt: { type: Date },
@@ -55,6 +57,7 @@ const orderSchema = new mongoose.Schema({
     update_time: { type: String },
     email_address: { type: String },
   },
+  orderNote: { type: String },
   isDispatched: { type: Boolean, required: true, default: false },
   isDelivered: { type: Boolean, required: true, default: false },
   deliveredAt: { type: Date },

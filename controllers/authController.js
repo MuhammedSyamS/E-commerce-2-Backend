@@ -149,8 +149,18 @@ exports.registerUser = async (req, res) => {
       firstName,
       lastName,
       email,
-      password // Plain text sent here, hashed by Schema
+      password, // Plain text sent here, hashed by Schema
+      referralCode: Math.random().toString(36).substring(2, 8).toUpperCase()
     });
+
+    // Handle Referral Usage
+    if (req.body.referralCode) {
+      const referrer = await User.findOne({ referralCode: req.body.referralCode.toUpperCase() });
+      if (referrer) {
+        user.referredBy = referrer._id;
+        await user.save();
+      }
+    }
 
     // Clean up OTP record
     await Otp.deleteOne({ _id: otpRecord._id });
@@ -218,6 +228,9 @@ exports.loginUser = async (req, res) => {
       permissions: user.permissions, // Added
       wishlist: user.wishlist,
       cart: user.cart,
+      referralCode: user.referralCode,
+      referralEarnings: user.referralEarnings,
+      loyaltyPoints: user.loyaltyPoints,
       token: generateToken(user._id),
     });
   } catch (error) {
@@ -251,6 +264,9 @@ exports.getUserProfile = async (req, res) => {
       permissions: user.permissions, // Added
       cart: user.cart,
       wishlist: user.wishlist,
+      referralCode: user.referralCode,
+      referralEarnings: user.referralEarnings,
+      loyaltyPoints: user.loyaltyPoints,
       token: generateToken(user._id), // Optional: refresh token
     });
   } catch (error) {

@@ -1,11 +1,11 @@
 const mongoose = require('mongoose');
-// require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const Product = require('./models/Product');
-// const connectDB = require('./config/db');
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect('mongodb+srv://shamsaifudheen_db_user:TIPgwZykPJNVQ8Ru@ecommerce.bbxai9g.mongodb.net/highphaus?retryWrites=true&w=majority');
+        const conn = await mongoose.connect(process.env.MONGO_URI);
         console.log(`MongoDB Connected: ${conn.connection.host}`);
     } catch (error) {
         console.error(`Error: ${error.message}`);

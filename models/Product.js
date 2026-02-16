@@ -53,7 +53,8 @@ const productSchema = new mongoose.Schema({
 
   reviews: [reviewSchema],
   rating: { type: Number, required: true, default: 0 },
-  numReviews: { type: Number, required: true, default: 0 }
+  numReviews: { type: Number, required: true, default: 0 },
+  viewCount: { type: Number, default: 0 }
 }, { timestamps: true });
 
 // ENFORCE STOCK CONSISTENCY

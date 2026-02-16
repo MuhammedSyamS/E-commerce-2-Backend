@@ -97,10 +97,116 @@ const clearCart = async (req, res) => {
   }
 };
 
+
+// --- 5. SAVE FOR LATER ---
+const saveForLater = async (req, res) => {
+  try {
+    const { productId, selectedVariant, _id } = req.body;
+    const user = await User.findById(req.user._id);
+
+    // Find the item in cart
+    let cartItem;
+    if (_id) {
+      cartItem = user.cart.id(_id);
+    } else {
+      cartItem = user.cart.find(item =>
+        item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant)
+      );
+    }
+
+    if (!cartItem) {
+      return res.status(404).json({ message: "Item not found in cart" });
+    }
+
+    // Add to savedForLater (check for duplicates)
+    const alreadySaved = user.savedForLater.find(item =>
+      item.product.toString() === cartItem.product.toString() && isSameVariant(item.selectedVariant, cartItem.selectedVariant)
+    );
+
+    if (!alreadySaved) {
+      user.savedForLater.push({
+        product: cartItem.product,
+        name: cartItem.name,
+        price: cartItem.price,
+        image: cartItem.image,
+        quantity: cartItem.quantity,
+        selectedVariant: cartItem.selectedVariant
+      });
+    }
+
+    // Remove from cart
+    if (_id) {
+      user.cart.pull(_id);
+    } else {
+      user.cart = user.cart.filter(item => !(item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant)));
+    }
+
+    await user.save();
+    res.status(200).json({ cart: user.cart, savedForLater: user.savedForLater });
+  } catch (error) {
+    res.status(500).json({ message: "Save for later failed", error: error.message });
+  }
+};
+
+// --- 6. MOVE TO CART ---
+const moveToCart = async (req, res) => {
+  try {
+    const { productId, selectedVariant, _id } = req.body;
+    const user = await User.findById(req.user._id);
+
+    // Find the item in savedForLater
+    let savedItem;
+    if (_id) {
+      savedItem = user.savedForLater.id(_id);
+    } else {
+      savedItem = user.savedForLater.find(item =>
+        item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant)
+      );
+    }
+
+    if (!savedItem) {
+      return res.status(404).json({ message: "Item not found in Saved for Later" });
+    }
+
+    // Add back to cart (check for duplicates)
+    const itemIndex = user.cart.findIndex(item =>
+      item.product.toString() === savedItem.product.toString() && isSameVariant(item.selectedVariant, savedItem.selectedVariant)
+    );
+
+    if (itemIndex > -1) {
+      user.cart[itemIndex].quantity += savedItem.quantity || 1;
+    } else {
+      user.cart.push({
+        product: savedItem.product,
+        name: savedItem.name,
+        price: savedItem.price,
+        image: savedItem.image,
+        quantity: savedItem.quantity || 1,
+        selectedVariant: savedItem.selectedVariant
+      });
+    }
+
+    // Remove from savedForLater
+    if (_id) {
+      user.savedForLater.pull(_id);
+    } else {
+      user.savedForLater = user.savedForLater.filter(item => !(item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant)));
+    }
+
+    await user.save();
+    res.status(200).json({ cart: user.cart, savedForLater: user.savedForLater });
+  } catch (error) {
+    res.status(500).json({ message: "Move to cart failed", error: error.message });
+  }
+};
+
 // --- THE EXPORT BLOCK ---
+
 module.exports = {
   addToCart,
   decreaseQuantity,
   removeFromCart,
-  clearCart
+  clearCart,
+  saveForLater,
+  moveToCart
 };

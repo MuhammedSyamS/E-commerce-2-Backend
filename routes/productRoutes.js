@@ -23,6 +23,13 @@ const { protect, admin, manager } = require('../middleware/authMiddleware');
  * @desc    Fetch all products (used for shop and category filters)
  * @access  Public
  */
+router.get('/search', require('../controllers/productController').searchProducts);
+
+/**
+ * @route   GET /api/products
+ * @desc    Fetch all products (used for shop and category filters)
+ * @access  Public
+ */
 router.get('/', getProducts);
 
 /**
@@ -67,6 +74,13 @@ router.get('/:slug', getProductBySlug);
  * @access  Private/Admin/Manager
  */
 router.post('/', protect, manager, createProduct);
+
+/**
+ * @route   PUT /api/products/bulk-update
+ * @desc    Bulk update products (Price, Stock, Status)
+ * @access  Private/Admin/Manager
+ */
+router.put('/bulk-update', protect, manager, require('../controllers/productController').bulkUpdateProducts);
 
 /**
  * @route   PUT /api/products/:id
@@ -115,5 +129,7 @@ router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 router.put('/:id/reviews/:reviewId/toggle', protect, manager, require('../controllers/productController').toggleReviewVisibility);
 router.put('/:id/reviews/:reviewId/reply', protect, manager, require('../controllers/productController').replyToReview);
 router.put('/:id/reviews/:reviewId/helpful', protect, require('../controllers/productController').toggleReviewHelpful);
+router.get('/filters', require('../controllers/productController').getFilterData); // NEW
+router.post('/:id/waitlist', require('../controllers/productController').subscribeWaitlist); // NEW
 
 module.exports = router;

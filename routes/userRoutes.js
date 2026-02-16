@@ -17,14 +17,24 @@ router.delete('/cards/:id', protect, removeCard);
 // Profile
 router.get('/profile', protect, require('../controllers/userController').getUserProfile); // Added Sync Route
 router.put('/profile', protect, updateProfile);
+router.get('/referrals', protect, require('../controllers/userController').getReferralStats);
+router.get('/loyalty-history', protect, require('../controllers/userController').getLoyaltyHistory);
 
 // History (AI)
 router.post('/history', protect, require('../controllers/userController').recordView);
+router.get('/recently-viewed', protect, require('../controllers/userController').getRecentlyViewed);
+
+// Social Login
+router.post('/google-login', require('../controllers/userController').googleLogin);
 
 // Notifications
 // Notification Routes
 router.get('/notifications', protect, getNotifications);
 router.put('/notifications/:id/read', protect, markNotificationRead); // NEW
+
+// OTP Routes for Security
+router.post('/security/send-otp', protect, require('../controllers/userController').sendOTP);
+router.post('/verify-otp', protect, require('../controllers/userController').verifyOTP);
 
 // --- ADMIN ROUTES ---
 // We should add an 'admin' middleware check here in a real app, 
@@ -39,6 +49,10 @@ router.put('/:id/role', protect, admin, userController.updateUserRole);
 router.put('/:id/block', protect, admin, userController.toggleBlockUser);
 router.put('/:id/permissions', protect, admin, userController.updateUserPermissions);
 router.get('/logs', protect, admin, userController.getLogs);
+
+// Abandoned Cart Management
+router.get('/admin/abandoned-carts', protect, admin, userController.getAbandonedCarts);
+router.post('/admin/nudge/:id', protect, admin, userController.sendCartNudge);
 
 
 module.exports = router;

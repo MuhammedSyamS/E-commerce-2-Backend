@@ -12,9 +12,28 @@ const userSchema = new mongoose.Schema({
   isAdmin: { type: Boolean, required: true, default: false },
   isSuperAdmin: { type: Boolean, default: false }, // Full Access
   loyaltyPoints: { type: Number, default: 0 }, // NEW: Loyalty Program
+  totalSpent: { type: Number, default: 0 }, // NEW: Lifecycle Tracking
+  membershipTier: {
+    type: String,
+    enum: ['Bronze', 'Silver', 'Gold', 'Platinum'],
+    default: 'Bronze'
+  },
   permissions: [{ type: String }], // Granular access: 'manage_orders', 'manage_products', 'view_stats'
   wishlist: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product', default: [] }],
   cart: [{
+    product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
+    quantity: { type: Number, default: 1 },
+    name: String,
+    price: Number,
+    image: String,
+    selectedVariant: {
+      size: String,
+      color: String,
+      price: Number,
+      stock: Number
+    }
+  }],
+  savedForLater: [{
     product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
     quantity: { type: Number, default: 1 },
     name: String,
@@ -56,7 +75,18 @@ const userSchema = new mongoose.Schema({
     expYear: String,
     cvv: String // Added for demo purposes
   }],
-  abandonedCartEmailSentAt: { type: Date } // Track when we last nudged them
+  abandonedCartEmailSentAt: { type: Date }, // Track when we last nudged them
+  // REFERRAL SYSTEM
+  referralCode: { type: String, unique: true, sparse: true },
+  referredBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  referralEarnings: { type: Number, default: 0 },
+  hasMadeFirstOrder: { type: Boolean, default: false }, // To track if referrer paid
+  // GOOGLE AUTH
+  googleId: { type: String, unique: true, sparse: true },
+  avatar: { type: String },
+  // OTP FOR SECURITY
+  otp: { type: String },
+  otpExpires: { type: Date }
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {

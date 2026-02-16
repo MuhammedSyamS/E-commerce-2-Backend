@@ -2,7 +2,7 @@ const axios = require('axios');
 
 async function checkApi() {
     try {
-        const { data } = await axios.get('http://localhost:5000/api/products');
+        const { data } = await axios.get('http://localhost:5005/api/products');
         console.log("--- API RESPONSE SAMPLE ---");
         if (data.length > 0) {
             const p = data[0];

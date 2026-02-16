@@ -4,7 +4,7 @@ const axios = require('axios');
 const testApi = async () => {
     try {
         console.log("Fetching products from API...");
-        const res = await axios.get('http://localhost:5000/api/products');
+        const res = await axios.get('http://localhost:5005/api/products');
         const products = res.data;
 
         console.log(`Fetched ${products.length} products.`);

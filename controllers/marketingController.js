@@ -299,3 +299,125 @@ exports.checkProductFlashSale = async (req, res) => {
         res.status(500).json({ message: 'Check failed' });
     }
 };
+// --- BROADCASTS (EMAIL CAMPAIGNS) ---
+
+const Broadcast = require('../models/Broadcast');
+const sendEmail = require('../utils/sendEmail');
+const User = require('../models/User');
+
+// @desc    Get All Broadcasts
+// @route   GET /api/marketing/broadcasts
+// @access  Private/Admin
+exports.getBroadcasts = async (req, res) => {
+    try {
+        const broadcasts = await Broadcast.find({}).sort({ createdAt: -1 });
+        res.json(broadcasts);
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to fetch broadcasts' });
+    }
+};
+
+// @desc    Create & Send Broadcast
+// @route   POST /api/marketing/broadcasts
+// @access  Private/Admin
+exports.createBroadcast = async (req, res) => {
+    try {
+        const { subject, content, targetAudience, status } = req.body; // status: 'Draft' or 'Sent'
+
+        if (!subject || !content) {
+            return res.status(400).json({ message: 'Subject and Content are required' });
+        }
+
+        const broadcast = new Broadcast({
+            subject,
+            content,
+            targetAudience,
+            status: status || 'Draft'
+        });
+
+        if (status === 'Sent') {
+            // 1. Fetch Recipients
+            let recipientsSet = new Set();
+            if (targetAudience === 'Subscribers') {
+                const subscribers = await Newsletter.find({ isSubscribed: true });
+                subscribers.forEach(s => { if (s.email) recipientsSet.add(s.email.toLowerCase().trim()); });
+            } else if (targetAudience === 'Customers') {
+                const customers = await User.find({});
+                customers.forEach(u => { if (u.email) recipientsSet.add(u.email.toLowerCase().trim()); });
+            } else {
+                const subscribers = await Newsletter.find({ isSubscribed: true });
+                const customers = await User.find({});
+                subscribers.forEach(s => { if (s.email) recipientsSet.add(s.email.toLowerCase().trim()); });
+                customers.forEach(u => { if (u.email) recipientsSet.add(u.email.toLowerCase().trim()); });
+            }
+
+            const recipients = Array.from(recipientsSet);
+            console.log(`Starting broadcast for ${recipients.length} recipients...`);
+
+            if (recipients.length === 0) {
+                return res.status(400).json({ message: 'No eligible recipients found' });
+            }
+
+            // 2. Send Emails
+            let sentCount = 0;
+            let failureCount = 0;
+
+            // Sequential sending is safer for Gmail and allows better tracking
+            for (const email of recipients) {
+                try {
+                    await sendEmail({
+                        email,
+                        subject,
+                        html: content
+                    });
+                    sentCount++;
+                } catch (err) {
+                    console.error(`Broadcast failed for ${email}:`, err.message);
+                    failureCount++;
+                }
+            }
+
+            broadcast.sentCount = sentCount;
+            broadcast.sentAt = new Date();
+            console.log(`Broadcast completed. Sent: ${sentCount}, Failed: ${failureCount}`);
+        }
+
+        await broadcast.save();
+        res.status(201).json(broadcast);
+
+    } catch (error) {
+        console.error("Broadcast Error:", error);
+        res.status(500).json({ message: 'Broadcast creation failed' });
+    }
+};
+// @desc    Toggle Coupon Status
+// @route   PUT /api/marketing/coupons/:id/toggle
+// @access  Private/Admin
+exports.toggleCouponStatus = async (req, res) => {
+    try {
+        const coupon = await Coupon.findById(req.params.id);
+        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+
+        coupon.isActive = !coupon.isActive;
+        await coupon.save();
+        res.json(coupon);
+    } catch (error) {
+        res.status(500).json({ message: 'Error toggling coupon status' });
+    }
+};
+
+// @desc    Toggle Flash Sale Status
+// @route   PUT /api/marketing/flash-sales/:id/toggle
+// @access  Private/Admin
+exports.toggleFlashSaleStatus = async (req, res) => {
+    try {
+        const sale = await FlashSale.findById(req.params.id);
+        if (!sale) return res.status(404).json({ message: 'Flash sale not found' });
+
+        sale.isActive = !sale.isActive;
+        await sale.save();
+        res.json(sale);
+    } catch (error) {
+        res.status(500).json({ message: 'Error toggling flash sale status' });
+    }
+};
