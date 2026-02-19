@@ -12,7 +12,7 @@ const privateVapidKey = process.env.VAPID_PRIVATE_KEY;
 if (!publicVapidKey || !privateVapidKey) {
     console.error("VAPID KEYS MISSING IN ENV");
 } else {
-    webpush.setVapidDetails('mailto:admin@highphaus.com', publicVapidKey, privateVapidKey);
+    webpush.setVapidDetails('mailto:admin@slook.com', publicVapidKey, privateVapidKey);
 }
 
 // 1. Subscribe User to Push

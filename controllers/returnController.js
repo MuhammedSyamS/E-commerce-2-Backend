@@ -10,10 +10,27 @@ const pushUtils = require('../utils/push');
 // @access  Private
 const createReturnRequest = async (req, res) => {
     try {
-        const { orderId, itemId, reason, comment, type, images } = req.body;
+        const { orderId, itemId, reason, comment, type, images, selectedVariant } = req.body;
 
         const order = await Order.findById(orderId);
         if (!order) return res.status(404).json({ message: 'Order not found' });
+
+        // Ensure Order is Delivered
+        if (order.orderStatus !== 'Delivered') {
+            return res.status(400).json({ message: 'Returns can only be requested for Delivered orders.' });
+        }
+
+        // Check 7-Day Return Window
+        if (order.deliveredAt) {
+            const deliveryDate = new Date(order.deliveredAt);
+            const currentDate = new Date();
+            const diffTime = Math.abs(currentDate - deliveryDate);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            if (diffDays > 7) {
+                return res.status(400).json({ message: 'Return period expired (7 days from delivery).' });
+            }
+        }
 
         // Verify Ownership
         if (order.user.toString() !== req.user._id.toString()) {
@@ -52,6 +69,7 @@ const createReturnRequest = async (req, res) => {
             reason,
             comment,
             images,
+            requestedVariant: selectedVariant, // Capture User's Choice for Exchange
             status: 'Requested',
             timeline: [{ status: 'Requested', note: 'Return requested by user', user: req.user._id }]
         });
@@ -61,6 +79,17 @@ const createReturnRequest = async (req, res) => {
         // Sync Order Status
         item.status = type === 'Exchange' ? 'Exchange Requested' : 'Return Requested';
         await order.save();
+
+        // --- EMIT SOCKET EVENT ---
+        const io = req.app.get('socketio');
+        if (io) {
+            io.emit('new-return', {
+                _id: savedReturn._id,
+                user: { firstName: req.user.firstName, lastName: req.user.lastName },
+                type,
+                reason
+            });
+        }
 
         res.status(201).json(savedReturn);
     } catch (error) {
@@ -225,8 +254,19 @@ const resolveReturn = async (req, res) => {
             if (ret.reason !== 'Damaged Product') {
                 const product = await Product.findById(ret.orderItem.product);
                 if (product) {
-                    product.countInStock += ret.orderItem.qty;
-                    // Variant logic...
+                    if (ret.orderItem.selectedVariant && product.variants && product.variants.length > 0) {
+                        const variant = product.variants.find(v =>
+                            v.size === ret.orderItem.selectedVariant.size &&
+                            v.color === ret.orderItem.selectedVariant.color
+                        );
+                        if (variant) {
+                            variant.stock += ret.orderItem.qty;
+                        } else {
+                            product.countInStock += ret.orderItem.qty; // Fallback
+                        }
+                    } else {
+                        product.countInStock += ret.orderItem.qty;
+                    }
                     await product.save();
                 }
             }
@@ -242,7 +282,7 @@ const resolveReturn = async (req, res) => {
                     image: ret.orderItem.image,
                     price: 0,
                     product: ret.orderItem.product,
-                    selectedVariant: ret.orderItem.selectedVariant,
+                    selectedVariant: ret.requestedVariant || ret.orderItem.selectedVariant, // Use requested if available
                     status: 'Processing'
                 }],
                 shippingAddress: order.shippingAddress,
@@ -263,10 +303,23 @@ const resolveReturn = async (req, res) => {
             // Sync Order
             if (item) item.status = 'Exchanged';
 
-            // Stock Decrement for new item (Assuming same item for now)
+            // Stock Decrement for new item
             const product = await Product.findById(ret.orderItem.product);
             if (product) {
-                product.countInStock -= ret.orderItem.qty;
+                const variantToUse = ret.requestedVariant || ret.orderItem.selectedVariant;
+                if (variantToUse && product.variants && product.variants.length > 0) {
+                    const variant = product.variants.find(v =>
+                        v.size === variantToUse.size &&
+                        v.color === variantToUse.color
+                    );
+                    if (variant && variant.stock >= ret.orderItem.qty) {
+                        variant.stock -= ret.orderItem.qty;
+                    } else if (!variant) {
+                        product.countInStock -= ret.orderItem.qty; // Fallback
+                    }
+                } else {
+                    product.countInStock -= ret.orderItem.qty;
+                }
                 await product.save();
             }
         }
@@ -293,11 +346,38 @@ const resolveReturn = async (req, res) => {
     }
 };
 
+// @desc    Track Return Status (Public with Email verification)
+// @route   GET /api/returns/track/:id?email=...
+// @access  Public
+const trackReturn = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { email } = req.query;
+
+        if (!email) return res.status(400).json({ message: 'Email is required for tracking' });
+
+        const ret = await Return.findById(id)
+            .populate('user', 'email')
+            .select('status timeline orderItem type requestedVariant createdAt');
+
+        if (!ret) return res.status(404).json({ message: 'Return request not found' });
+
+        if (ret.user.email.toLowerCase() !== email.toLowerCase()) {
+            return res.status(401).json({ message: 'Email does not match this return ID' });
+        }
+
+        res.json(ret);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
 module.exports = {
     createReturnRequest,
     getAllReturns,
     getMyReturns,
     getReturnById,
     updateReturnStatus,
-    resolveReturn
+    resolveReturn,
+    trackReturn
 };

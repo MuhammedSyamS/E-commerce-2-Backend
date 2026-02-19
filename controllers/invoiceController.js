@@ -28,10 +28,10 @@ exports.generateInvoice = async (req, res) => {
         doc
             .fillColor('#444444')
             .fontSize(20)
-            .text('HighPhaus', 50, 50)
+            .text('SLOOK', 50, 50)
             .fontSize(10)
             .text('Premium E-Commerce Studio', 50, 80)
-            .text('support@highphaus.com', 50, 95)
+            .text('support@slook.com', 50, 95)
             .moveDown();
 
         // --- INVOICE INFO ---
@@ -108,7 +108,7 @@ exports.generateInvoice = async (req, res) => {
         doc
             .fontSize(10)
             .font('Helvetica')
-            .text('Thank you for shopping with HighPhaus.', 50, 700, { align: 'center', width: 500 });
+            .text('Thank you for shopping with SLOOK.', 50, 700, { align: 'center', width: 500 });
 
         doc.end();
     } catch (error) {

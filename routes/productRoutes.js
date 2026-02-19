@@ -16,7 +16,7 @@ const {
 } = require('../controllers/productController');
 
 // Import your authentication middleware
-const { protect, admin, manager } = require('../middleware/authMiddleware');
+const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
 
 /**
  * @route   GET /api/products
@@ -65,6 +65,7 @@ router.get('/reviews/my-reviews', protect, getUserReviews);
  * @desc    Fetch single product by slug or ID
  * @access  Public
  */
+router.get('/:id/variants', require('../controllers/productController').getProductVariants);
 router.get('/:slug', getProductBySlug);
 
 // ADMIN / MANAGER ROUTES
@@ -73,42 +74,42 @@ router.get('/:slug', getProductBySlug);
  * @desc    Create a new product
  * @access  Private/Admin/Manager
  */
-router.post('/', protect, manager, createProduct);
+router.post('/', protect, hasPermission('manage_products'), createProduct);
 
 /**
  * @route   PUT /api/products/bulk-update
  * @desc    Bulk update products (Price, Stock, Status)
  * @access  Private/Admin/Manager
  */
-router.put('/bulk-update', protect, manager, require('../controllers/productController').bulkUpdateProducts);
+router.put('/bulk-update', protect, hasPermission('manage_products'), require('../controllers/productController').bulkUpdateProducts);
 
 /**
  * @route   PUT /api/products/:id
  * @desc    Update a product
  * @access  Private/Admin/Manager
  */
-router.put('/:id', protect, manager, updateProduct);
+router.put('/:id', protect, hasPermission('manage_products'), updateProduct);
 
 /**
  * @route   DELETE /api/products/:id
  * @desc    Delete a product
  * @access  Private/Admin/Manager
  */
-router.delete('/:id', protect, manager, deleteProduct);
+router.delete('/:id', protect, hasPermission('manage_products'), deleteProduct);
 
 /**
  * @route   GET /api/products/admin/reviews
  * @desc    Get all reviews for moderation
  * @access  Private/Admin/Manager
  */
-router.get('/admin/reviews', protect, manager, require('../controllers/productController').getAllReviews);
+router.get('/admin/reviews', protect, hasPermission('manage_reviews'), require('../controllers/productController').getAllReviews);
 
 /**
  * @route   GET /api/products/:id/stock-logs
  * @desc    Get stock history logs
  * @access  Private/Admin/Manager
  */
-router.get('/:id/stock-logs', protect, manager, require('../controllers/productController').getStockLogs);
+router.get('/:id/stock-logs', protect, hasPermission('manage_products'), require('../controllers/productController').getStockLogs);
 
 // REVIEWS (User)
 /**
@@ -126,8 +127,8 @@ router.post('/:id/reviews', protect, createProductReview);
 router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 
 // CRITICAL: Export the router so index.js can use it
-router.put('/:id/reviews/:reviewId/toggle', protect, manager, require('../controllers/productController').toggleReviewVisibility);
-router.put('/:id/reviews/:reviewId/reply', protect, manager, require('../controllers/productController').replyToReview);
+router.put('/:id/reviews/:reviewId/toggle', protect, hasPermission('manage_reviews'), require('../controllers/productController').toggleReviewVisibility);
+router.put('/:id/reviews/:reviewId/reply', protect, hasPermission('manage_reviews'), require('../controllers/productController').replyToReview);
 router.put('/:id/reviews/:reviewId/helpful', protect, require('../controllers/productController').toggleReviewHelpful);
 router.get('/filters', require('../controllers/productController').getFilterData); // NEW
 router.post('/:id/waitlist', require('../controllers/productController').subscribeWaitlist); // NEW

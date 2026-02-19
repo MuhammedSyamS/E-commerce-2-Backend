@@ -1,7 +1,7 @@
 {
-  "name": "highphaus-server",
+  "name": "slook-server",
   "version": "1.0.0",
-  "description": "HighPhaus backend server",
+  "description": "SLOOK backend server",
   "private": true,
   "scripts": {
     "start": "node index.js",

@@ -6,9 +6,13 @@ const {
     getTicketById,
     getAllTickets,
     updateTicket,
-    deleteTicket
+    deleteTicket,
+    submitContact
 } = require('../controllers/supportController');
 const { protect, admin, manager } = require('../middleware/authMiddleware');
+
+// Public Routes
+router.route('/contact').post(submitContact);
 
 // User Routes
 router.route('/').post(protect, createTicket);

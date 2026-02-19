@@ -32,6 +32,10 @@ const returnSchema = mongoose.Schema({
     reason: { type: String, required: true },
     comment: { type: String },
     images: [String],
+    requestedVariant: {
+        size: String,
+        color: String
+    },
 
     // LIFECYCLE STATE
     status: {

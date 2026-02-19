@@ -6,7 +6,7 @@ const Notification = require('../models/Notification');
 const publicVapidKey = 'BBpKl_F-zOM-ujMnUcgudUiVjEIELl0oarZBM8tF9_HAn0bx_MUhxym_5anPaEA653crE40tnwxdAzo1HlIfIh4';
 const privateVapidKey = '8YJkTEUta_Pf27ti54Tf8RsgqP8a7h-XRPeMODLEcuw';
 
-webpush.setVapidDetails('mailto:admin@highphaus.com', publicVapidKey, privateVapidKey);
+webpush.setVapidDetails('mailto:admin@slook.com', publicVapidKey, privateVapidKey);
 
 // Send to specific user
 exports.sendToUser = async (userId, title, message, data = {}) => {

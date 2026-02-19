@@ -1,8 +1,8 @@
 const mongoose = require('mongoose');
 
 const siteSettingsSchema = new mongoose.Schema({
-    siteName: { type: String, default: 'MISO STORE' },
-    supportEmail: { type: String, default: 'support@miso.com' },
+    siteName: { type: String, default: 'SLOOK STORE' },
+    supportEmail: { type: String, default: 'support@slook.com' },
     maintenanceMode: { type: Boolean, default: false },
 
     // Policies (Rich Text or MarkDown)

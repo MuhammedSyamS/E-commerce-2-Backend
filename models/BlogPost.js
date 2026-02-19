@@ -19,7 +19,7 @@ const blogPostSchema = new mongoose.Schema({
     },
     author: {
         type: String,
-        default: 'Highphaus Team'
+        default: 'SLOOK Team'
     },
     tags: [{
         type: String

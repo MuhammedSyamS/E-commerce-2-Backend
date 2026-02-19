@@ -24,13 +24,13 @@ const generateTestNotifs = async () => {
             },
             {
                 user: user._id,
-                title: "New Drop: Miso Collection",
-                message: "The new Miso Minimalist collection is live. 20% off for the next 24 hours.",
+                title: "New Drop: SLOOK Collection",
+                message: "The new SLOOK Minimalist collection is live. 20% off for the next 24 hours.",
                 type: "promo",
                 isRead: true,
                 data: {
                     image: "https://images.pexels.com/photos/10972439/pexels-photo-10972439.jpeg?auto=compress&cs=tinysrgb&w=1600",
-                    url: "/shop?collection=miso"
+                    url: "/shop?collection=slook"
                 }
             }
         ];

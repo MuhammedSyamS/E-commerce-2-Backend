@@ -14,7 +14,7 @@ exports.toggleWishlist = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found" });
 
     // Check if product is already in wishlist
-    const isAdded = user.wishlist.includes(productId);
+    const isAdded = user.wishlist.some(id => id.toString() === productId);
 
     if (isAdded) {
       // Remove it
@@ -25,9 +25,35 @@ exports.toggleWishlist = async (req, res) => {
     }
 
     await user.save();
+
+    // Populate before returning so frontend has full product details
+    await user.populate('wishlist');
+
     res.status(200).json(user.wishlist);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Get user wishlist
+// @route   GET /api/users/wishlist
+// @access  Private
+exports.getWishlist = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).populate('wishlist');
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Filter out nulls (in case product was deleted but ID remains)
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    if (validWishlist.length !== user.wishlist.length) {
+      user.wishlist = validWishlist;
+      await user.save();
+    }
+
+    res.json(validWishlist);
+  } catch (error) {
+    res.status(500).json({ message: "Failed to fetch wishlist" });
   }
 };
 
@@ -243,10 +269,10 @@ exports.updateProfile = async (req, res) => {
 // @access  Private
 exports.getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id);
+    const user = await User.findById(req.user._id).populate('wishlist');
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // SELF-HEALING CART: Remove stale items (where Product deleted from DB)
+    // 1. SELF-HEALING CART: Remove stale items
     if (user.cart && user.cart.length > 0) {
       const Product = require('../models/Product');
       const validCart = [];
@@ -257,7 +283,7 @@ exports.getUserProfile = async (req, res) => {
         if (productExists) {
           validCart.push(item);
         } else {
-          console.log(`Removing stale cart item: ${item.name} (Product ID: ${item.product} not found)`);
+          console.log(`Removing stale cart item: ${item.name}`);
           cartModified = true;
         }
       }
@@ -268,6 +294,23 @@ exports.getUserProfile = async (req, res) => {
       }
     }
 
+    // 2. SELF-HEALING WISHLIST: Remove stale items (Deleted Products)
+    // user.wishlist is already populated
+    const originalWishlistLength = user.wishlist.length;
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    if (validWishlist.length !== originalWishlistLength) {
+      console.log(`[FIX] Removing ${originalWishlistLength - validWishlist.length} stale items from wishlist for user ${user.email}`);
+
+      // Use direct update to ensure DB consistency without population issues
+      await User.updateOne(
+        { _id: user._id },
+        { wishlist: validWishlist.map(p => p._id) }
+      );
+
+      console.log(`[FIX] Wishlist cleaned in DB.`);
+    }
+
     res.json({
       _id: user._id,
       firstName: user.firstName,
@@ -275,17 +318,16 @@ exports.getUserProfile = async (req, res) => {
       email: user.email,
       phone: user.phone,
       isAdmin: user.isAdmin,
-      role: user.role, // Added Role
-      permissions: user.permissions, // Added Permissions
-      // We don't generate a new token here, just return data. 
-      // The client keeps the old valid token but updates the user object.
+      role: user.role,
+      permissions: user.permissions,
       addresses: user.addresses,
-      wishlist: user.wishlist,
+      wishlist: validWishlist, // Return populated & cleaned list
       cart: user.cart,
       notifications: user.notifications,
       savedCards: user.savedCards
     });
   } catch (error) {
+    console.error("Profile Fetch Error:", error);
     res.status(500).json({ message: "Fetch failed" });
   }
 };

@@ -67,8 +67,8 @@ app.use(express.json({ limit: '50mb' }));
 // TIGHTEN CORS for PROD
 const allowedOrigins = [
   'http://localhost:5173', // Local Dev
-  'https://highphaus.vercel.app', // Example Production domain
-  'https://slook.luxury' // Example Alternative
+  'https://slook.luxury', // Primary Production
+  'https://slook-store.vercel.app' // Fallback
 ];
 
 app.use(cors({
@@ -87,7 +87,7 @@ app.use(cors({
 
 // --- DATABASE CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
-  .then(() => logger.info('Highphaus MongoDB Connected Successfully'))
+  .then(() => logger.info('SLOOK MongoDB Connected Successfully'))
   .catch(err => {
     logger.error('Database Connection Error: %s', err.message);
     process.exit(1);
@@ -105,6 +105,7 @@ app.use('/api/coupons', require('./routes/couponRoutes')); // New Coupon Route
 app.use('/api/returns', returnRoutes); // NEW MODULE
 app.use('/api/reports', reportRoutes); // NEW
 app.use('/api/marketing', marketingRoutes);
+app.use('/api/looks', require('./routes/lookRoutes'));
 // app.use('/api/reports', reportRoutes); // Removed duplicate
 app.use('/api/settings', require('./routes/settingsRoutes')); // NEW
 app.use('/api/cart', cartRoutes);
@@ -119,8 +120,8 @@ const path = require('path');
 // app.use('/api/notifications', require('./routes/notificationRoutes')); // Removed Duplicate
 app.use('/api/support', require('./routes/supportRoutes')); // NEW SUPPORT SYSTEM
 app.use('/api/blog', require('./routes/blogRoutes')); // NEW BLOG SYSTEM
-app.use('/api/orders', require('./routes/invoiceRoutes'));
 app.use('/api/upload', uploadRoutes); // NEW
+app.use('/api/alerts', require('./routes/alertRoutes')); // NEW Phase 12
 app.use('/api/ai', require('./routes/aiRoutes')); // NEW Phase 11
 app.use('/', require('./routes/seoRoutes')); // ROBOTS & SITEMAP (at root)
 
@@ -129,7 +130,7 @@ app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
 // --- BASE ROUTE ---
 app.get('/', (req, res) => {
-  res.send('Highphaus API is running...');
+  res.send('SLOOK API is running...');
 });
 
 // --- CRON JOBS ---
@@ -170,7 +171,7 @@ app.set('socketio', io);
 
 // --- SERVER START ---
 const PORT = process.env.PORT || 5005;
-server.listen(PORT, () => {
+server.listen(PORT, '127.0.0.1', () => {
   logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {

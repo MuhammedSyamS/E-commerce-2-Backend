@@ -61,6 +61,16 @@ const orderSchema = new mongoose.Schema({
   isDispatched: { type: Boolean, required: true, default: false },
   isDelivered: { type: Boolean, required: true, default: false },
   deliveredAt: { type: Date },
+
+  // --- RETURN SYSTEM ---
+  returnStatus: {
+    type: String,
+    enum: ['None', 'Requested', 'Approved', 'Rejected', 'Refunded'],
+    default: 'None'
+  },
+  returnReason: { type: String },
+  returnRequestedAt: { type: Date },
+  returnMetadata: { type: Object }, // Flexible field for images/comments later
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);

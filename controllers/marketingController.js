@@ -3,6 +3,10 @@ const Newsletter = require('../models/Newsletter');
 const FlashSale = require('../models/FlashSale');
 const Product = require('../models/Product');
 const Order = require('../models/Order');
+const User = require('../models/User');
+const Broadcast = require('../models/Broadcast');
+const sendEmail = require('../utils/sendEmail');
+const { getNewsletterWelcomeTemplate } = require('../utils/emailTemplates');
 
 // --- COUPONS ---
 
@@ -190,10 +194,33 @@ exports.subscribeNewsletter = async (req, res) => {
             return res.json({ message: 'You are already on the list.' });
         }
 
-        await Newsletter.create({ email });
+
+        const newsletter = await Newsletter.create({ email });
+
+        // --- SEND WELCOME EMAIL ---
+        try {
+            await sendEmail({
+                email: newsletter.email,
+                subject: 'Welcome to the SLOOK Inner Circle! ✨',
+                html: getNewsletterWelcomeTemplate(newsletter.email)
+            });
+            console.log(`Newsletter welcome email sent to ${newsletter.email}`);
+        } catch (emailErr) {
+            console.error("Newsletter Email Failed:", emailErr);
+            // Don't fail the subscription if email fails
+        }
+
         res.status(201).json({ message: 'Welcome to the Inner Circle.' });
     } catch (error) {
-        res.status(500).json({ message: 'Subscription failed' });
+        console.error("Subscription Error:", error);
+        // Also log to our email log file for unified debugging
+        const fs = require('fs');
+        const path = require('path');
+        const logFile = path.join(__dirname, '../debug_otp.log');
+        const timestamp = new Date().toISOString();
+        fs.appendFileSync(logFile, `[${timestamp}] SUBSCRIPTION CTRL ERROR: ${error.message}\n`);
+
+        res.status(500).json({ message: 'Subscription failed', error: error.message });
     }
 };
 
@@ -300,10 +327,6 @@ exports.checkProductFlashSale = async (req, res) => {
     }
 };
 // --- BROADCASTS (EMAIL CAMPAIGNS) ---
-
-const Broadcast = require('../models/Broadcast');
-const sendEmail = require('../utils/sendEmail');
-const User = require('../models/User');
 
 // @desc    Get All Broadcasts
 // @route   GET /api/marketing/broadcasts

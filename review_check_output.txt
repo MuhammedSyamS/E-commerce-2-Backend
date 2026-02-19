@@ -1,0 +1,96 @@
+Found 10 products with reviews.
+
+Product: Noise-Cancelling Headphones (ID: 69958eac4c60ace0d76470b8)
+  - Review ID: 699591678cda832e5d39ac0b
+    Rating: 4, Comment: Five stars! Exceeded my expect...
+    Stored Name: "Payer Test"
+    Linked User: Payer Test (payer@test.com)
+  - Review ID: 699591678cda832e5d39ac0c
+    Rating: 2, Comment: It fits perfectly. Will buy ag...
+    Stored Name: "Reviewer Test"
+    Linked User: Reviewer Test (reviewer@test.com)
+  - Review ID: 699591678cda832e5d39ac0d
+    Rating: 2, Comment: Average quality, nothing speci...
+    Stored Name: "Debug Test"
+    Linked User: Debug Test (debug_test@test.com)
+
+Product: Mechanical Keychron K2 (ID: 69958eac4c60ace0d76470b9)
+  - Review ID: 699591678cda832e5d39ac10
+    Rating: 5, Comment: Amazing value for money. Highl...
+    Stored Name: "Syam StackUp"
+    Linked User: Syam StackUp (muhammedsyam.stackup@gmail.com)
+
+Product: Smart Fitness Watch (ID: 69958eac4c60ace0d76470ba)
+  - Review ID: 699591678cda832e5d39ac13
+    Rating: 4, Comment: Amazing value for money. Highl...
+    Stored Name: "Muhammed Syam"
+    Linked User: Muhammed Syam (shamsaifudheen@gmail.com)
+  - Review ID: 699591678cda832e5d39ac14
+    Rating: 1, Comment: Five stars! Exceeded my expect...
+    Stored Name: "Referrer User"
+    Linked User: Referrer User (im_referrer@test.com)
+
+Product: Vintage Denim Jacket (ID: 69958eac4c60ace0d76470bb)
+  - Review ID: 699591678cda832e5d39ac16
+    Rating: 4, Comment: Would not recommend for the pr...
+    Stored Name: "Referrer User"
+    Linked User: Referrer User (im_referrer@test.com)
+
+Product: Organic Cotton Tee (ID: 69958eac4c60ace0d76470bc)
+  - Review ID: 699591678cda832e5d39ac18
+    Rating: 5, Comment: Not what I expected, but custo...
+    Stored Name: "Super Admin"
+    Linked User: Super Admin (superadmin@example.com)
+
+Product: Urban Cargo Pants (ID: 69958eac4c60ace0d76470bd)
+  - Review ID: 699591678cda832e5d39ac1a
+    Rating: 3, Comment: The color was slightly differe...
+    Stored Name: "Nandhana S"
+    Linked User: Nandhana S (nandhanakallara123@gmail.com)
+
+Product: Minimalist Desk Lamp (ID: 69958eac4c60ace0d76470be)
+  - Review ID: 699591678cda832e5d39ac1c
+    Rating: 2, Comment: It fits perfectly. Will buy ag...
+    Stored Name: "Reviewer Test"
+    Linked User: Reviewer Test (reviewer@test.com)
+  - Review ID: 699591678cda832e5d39ac1d
+    Rating: 5, Comment: Five stars! Exceeded my expect...
+    Stored Name: "Test User"
+    Linked User: Test User (test_return_user@example.com)
+
+Product: Ceramic Plant Pot (ID: 69958eac4c60ace0d76470bf)
+  - Review ID: 699591678cda832e5d39ac1f
+    Rating: 2, Comment: Average quality, nothing speci...
+    Stored Name: "Cart Tester"
+    Linked User: Cart Tester (cart_tester@test.com)
+  - Review ID: 699591678cda832e5d39ac20
+    Rating: 2, Comment: Average quality, nothing speci...
+    Stored Name: "Muhammed Syam"
+    Linked User: Muhammed Syam (shamsaifudheen@gmail.com)
+  - Review ID: 699591678cda832e5d39ac21
+    Rating: 4, Comment: Five stars! Exceeded my expect...
+    Stored Name: "Payer Test"
+    Linked User: Payer Test (payer@test.com)
+
+Product: Leather Laptop Backpack (ID: 69958eac4c60ace0d76470c0)
+  - Review ID: 699591678cda832e5d39ac23
+    Rating: 5, Comment: Best purchase I've made this y...
+    Stored Name: "Sham Saifudheen"
+    Linked User: Sham Saifudheen (muhammedsyam7736@gmail.com)
+
+Product: Polarized Wayfarers (ID: 69958eac4c60ace0d76470c1)
+  - Review ID: 699591678cda832e5d39ac25
+    Rating: 3, Comment: Best purchase I've made this y...
+    Stored Name: "Admin User"
+    Linked User: Admin User (admin_return_user@example.com)
+  - Review ID: 699591678cda832e5d39ac26
+    Rating: 4, Comment: Best purchase I've made this y...
+    Stored Name: "Muhammed Syam"
+    Linked User: Muhammed Syam (shamsaifudheen@gmail.com)
+  - Review ID: 699591678cda832e5d39ac27
+    Rating: 2, Comment: Average quality, nothing speci...
+    Stored Name: "Referee User"
+    Linked User: Referee User (im_referee@test.com)
+
+Total Reviews: 18
+Problematic Reviews (No User): 0

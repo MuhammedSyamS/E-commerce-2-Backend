@@ -199,9 +199,29 @@ const startCronJobs = () => {
             );
             console.log(`✅ Deactivated ${expired.modifiedCount} expired coupons.`);
 
-            // 2. Future: Clean old logs or stale reports
-            // const Log = require('../models/Log');
-            // await Log.deleteMany({ createdAt: { $lt: thirtyDaysAgo } });
+            // 2. Low Stock Alerts
+            const lowStockProducts = await Product.find({ countInStock: { $lt: 5 }, isActive: true });
+            const Alert = require('../models/Alert');
+
+            for (const p of lowStockProducts) {
+                // Only create if not already alerted recently (avoid duplication)
+                const exists = await Alert.findOne({
+                    relatedId: p._id,
+                    type: 'low_stock',
+                    isRead: false
+                });
+
+                if (!exists) {
+                    await Alert.create({
+                        type: 'low_stock',
+                        severity: p.countInStock === 0 ? 'critical' : 'warning',
+                        message: `Product "${p.name}" is ${p.countInStock === 0 ? 'out of stock' : 'running low (' + p.countInStock + ' left)'}.`,
+                        relatedId: p._id,
+                        metadata: { slug: p.slug, count: p.countInStock }
+                    });
+                }
+            }
+            console.log(`✅ Processed ${lowStockProducts.length} low stock checks.`);
 
         } catch (error) {
             console.error('❌ System Cleanup Error:', error.message);

@@ -46,7 +46,7 @@ const getOrderConfirmationTemplate = (order) => {
             </div>
         </div>
         <p style="text-align: center; font-size: 12px; color: #999; margin-top: 20px;">
-            &copy; ${new Date().getFullYear()} HighPhaus. All rights reserved.
+            &copy; ${new Date().getFullYear()} SLOOK. All rights reserved.
         </p>
     </div>
     `;
@@ -181,4 +181,42 @@ const getAbandonedCartTemplate = (user, cartItems) => {
     `;
 };
 
-module.exports = { getOrderConfirmationTemplate, getReturnStatusTemplate, getWelcomeTemplate, getShippingConfirmationTemplate, getAbandonedCartTemplate };
+const getNewsletterWelcomeTemplate = (email) => {
+    return `
+    <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
+        <div style="text-align: center; padding: 40px 0; border-bottom: 1px solid #f5f5f5; background: #fff;">
+            <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -1px; margin: 0; text-transform: uppercase;">SLOOK</h1>
+        </div>
+        
+        <div style="padding: 50px 30px; text-align: center; background: #fff;">
+            <h2 style="font-size: 24px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 15px; color: #000;">Welcome to the Inner Circle!</h2>
+            <p style="color: #666; margin-bottom: 35px; font-size: 16px;">You're now subscribed to SLOOK. Get ready for exclusive drops, style inspiration, and special member-only offers.</p>
+            
+            <div style="background: #f9f9f9; padding: 25px; border-radius: 12px; margin-bottom: 35px; border: 1px solid #eee;">
+                <p style="margin: 0; font-size: 12px; color: #999; text-transform: uppercase; font-weight: bold; letter-spacing: 1px;">Your Private Entrance</p>
+                <p style="margin: 10px 0 0 0; font-size: 14px; font-weight: bold;">Use code <span style="color: #000; background: #fff; padding: 2px 8px; border-radius: 4px; border: 1px solid #ddd;">WELCOME10</span> for 10% off your next purchase.</p>
+            </div>
+
+            <div style="margin-bottom: 35px;">
+                <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/shop" style="background: #000; color: #fff; display: inline-block; padding: 15px 30px; border-radius: 5px; text-decoration: none; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Explore Collection</a>
+            </div>
+            
+            <p style="font-size: 14px; color: #888;">Stay tuned. The best is yet to come.</p>
+        </div>
+
+        <div style="background: #fafafa; border-top: 1px solid #eee; padding: 30px; text-align: center;">
+            <p style="font-size: 11px; color: #aaa; margin: 0;">&copy; ${new Date().getFullYear()} SLOOK. All rights reserved.</p>
+            <p style="font-size: 10px; color: #ccc; margin-top: 10px;">If you'd like to unsubscribe, <a href="#" style="color: #bbb;">click here</a>.</p>
+        </div>
+    </div>
+    `;
+};
+
+module.exports = {
+    getOrderConfirmationTemplate,
+    getReturnStatusTemplate,
+    getWelcomeTemplate,
+    getShippingConfirmationTemplate,
+    getAbandonedCartTemplate,
+    getNewsletterWelcomeTemplate
+};

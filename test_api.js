@@ -1,25 +1,16 @@
 const axios = require('axios');
 
-const checkApi = async () => {
+async function testApi() {
     try {
-        console.log("Fetching http://localhost:5005/api/products/reviews/featured ...");
-        const { data } = await axios.get('http://localhost:5005/api/products/reviews/featured');
-
-        console.log("\n--- API RESPONSE ---");
-        console.log(`Count: ${data.length}`);
-        if (data.length > 0) {
-            console.log("First Review Item:", JSON.stringify(data[0], null, 2));
-        } else {
-            console.log("Response is EMPTY array.");
+        const res = await axios.get('http://127.0.0.1:5005/api/looks');
+        console.log('Status Code:', res.status);
+        console.log('Data Length:', res.data.length);
+        if (res.data.length > 0) {
+            console.log('First Look Status:', res.data[0].status);
         }
-        console.log("--------------------\n");
     } catch (err) {
-        console.error("API Call Failed:", err.message);
-        if (err.response) {
-            console.error("Status:", err.response.status);
-            console.error("Data:", err.response.data);
-        }
+        console.error('API Error:', err.message);
     }
-};
+}
 
-checkApi();
+testApi();

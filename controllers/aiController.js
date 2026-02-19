@@ -82,7 +82,7 @@ exports.getFashionAdvice = async (req, res) => {
         // Final Text Construction
         if (!aiResponse) {
             aiResponse = recommendations.length > 0
-                ? `Based on the '${query}' aesthetic, I've curated these specific pieces. They represent the peak of HighPhaus style.`
+                ? `Based on the '${query}' aesthetic, I've curated these specific pieces. They represent the peak of SLOOK style.`
                 : `I couldn't find a direct match for '${query}', but these trending elite pieces elevate any outfit.`;
         }
 

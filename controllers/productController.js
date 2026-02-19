@@ -141,6 +141,19 @@ exports.getProductBySlug = async (req, res) => {
   }
 };
 
+// @desc    Get light variants for a product
+// @route   GET /api/products/:id/variants
+// @access  Public
+exports.getProductVariants = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id).select('variants name');
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    res.json(product.variants || []);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // @desc    Get AI Recommendations
 // @route   GET /api/products/recommendations
 // @access  Public (Optional Auth)

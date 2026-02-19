@@ -20,7 +20,7 @@ const consoleFormat = winston.format.combine(
 const logger = winston.createLogger({
     level: process.env.NODE_ENV === 'production' ? 'info' : 'debug',
     format: logFormat,
-    defaultMeta: { service: 'highphaus-server' },
+    defaultMeta: { service: 'slook-server' },
     transports: [
         // Write all logs with importance level of `error` or less to `error.log`
         new winston.transports.File({

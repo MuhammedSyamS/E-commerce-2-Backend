@@ -1,6 +1,5 @@
 const User = require('../models/User');
 const Otp = require('../models/Otp');
-const nodemailer = require('nodemailer');
 const generateToken = require('../utils/generateToken');
 const sendEmail = require('../utils/sendEmail');
 const { getWelcomeTemplate } = require('../utils/emailTemplates');
@@ -8,23 +7,13 @@ const { getWelcomeTemplate } = require('../utils/emailTemplates');
 // --- 1. SEND OTP ---
 // --- 1. SEND OTP ---
 exports.sendOtp = async (req, res) => {
-  const fs = require('fs');
-  const path = require('path');
-  const logFile = path.join(__dirname, '../debug_otp.log');
-
-  const log = (msg) => {
-    const timestamp = new Date().toISOString();
-    fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
-    console.log(msg); // Also log to console
-  };
-
   try {
-    log("--- OTP REQUEST RECEIVED ---");
+    console.log("--- OTP REQUEST RECEIVED ---");
     const { email } = req.body;
-    log(`Email: ${email}`);
+    console.log(`Email: ${email}`);
 
     if (!email) {
-      log("Error: Email missing");
+      console.log("Error: Email missing");
       return res.status(400).json({ message: "EMAIL IS REQUIRED" });
     }
 
@@ -33,13 +22,13 @@ exports.sendOtp = async (req, res) => {
     // Check if user already exists
     const userExists = await User.findOne({ email: emailLower });
     if (userExists) {
-      log("Error: User already registered");
+      console.log("Error: User already registered");
       return res.status(400).json({ message: "USER ALREADY REGISTERED WITH THIS EMAIL" });
     }
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    log(`Generated Code for ${emailLower}: ${code}`);
+    console.log(`Generated Code for ${emailLower}: ${code}`);
 
     // Save or Update OTP in DB
     try {
@@ -48,40 +37,15 @@ exports.sendOtp = async (req, res) => {
         { code, createdAt: Date.now() },
         { upsert: true, new: true }
       );
-      log("OTP Saved to DB");
+      console.log("OTP Saved to DB");
     } catch (dbError) {
-      log(`DB Error: ${dbError.message}`);
+      console.log(`DB Error: ${dbError.message}`);
       throw dbError;
     }
 
-    // Configure Mailer with more robust settings
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    // Verify connection execution
-    try {
-      await transporter.verify();
-      log("Nodemailer Connected Successfully");
-    } catch (verifyError) {
-      log(`Nodemailer Connection Failed: ${verifyError.message}`);
-      return res.status(500).json({ message: "EMAIL SERVICE CONFIGURATION ERROR" });
-    }
-
-    // Send Mail
-    await transporter.sendMail({
-      from: `"SLOOK Security" <${process.env.EMAIL_USER}>`,
-      to: emailLower,
+    // Send Mail using Central Utility
+    await sendEmail({
+      email: emailLower,
       subject: "Your Verification Code to SLOOK",
       html: `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
@@ -298,23 +262,9 @@ exports.forgotPasswordOtp = async (req, res) => {
       { upsert: true, new: true }
     );
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      host: 'smtp.gmail.com',
-      port: 587,
-      secure: false, // true for 465, false for other ports
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-      },
-      tls: {
-        rejectUnauthorized: false
-      }
-    });
-
-    await transporter.sendMail({
-      from: `"SLOOK Security" <${process.env.EMAIL_USER}>`,
-      to: emailLower,
+    // Send Mail using Central Utility
+    await sendEmail({
+      email: emailLower,
       subject: "Reset Your Password",
       html: `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">

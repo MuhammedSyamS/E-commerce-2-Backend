@@ -61,8 +61,10 @@ const manager = (req, res, next) => {
 
 const hasPermission = (permission) => {
   return (req, res, next) => {
-    // Super Admins have full access
-    if (req.user.isSuperAdmin) return next();
+    // Super Admins & Admins have full access
+    if (req.user.isAdmin || req.user.role === 'admin' || req.user.isSuperAdmin) {
+      return next();
+    }
 
     // Check specific permission
     if (req.user.permissions && req.user.permissions.includes(permission)) {

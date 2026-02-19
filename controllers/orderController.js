@@ -371,9 +371,16 @@ const getOrderById = async (req, res) => {
     // This fixes the "Unavailable" Review Button issue.
     const order = await Order.findById(req.params.id);
 
-    // Security Check: Only the user who placed the order (or an admin) can see it
     if (order) {
-      if (order.user.toString() !== req.user._id.toString() && !req.user.isAdmin && req.user.role !== 'admin') {
+      // Security Check: Only the user who placed the order (or an admin/manager) can see it
+      const isAuthorized =
+        order.user.toString() === req.user._id.toString() ||
+        req.user.isAdmin ||
+        req.user.role === 'admin' ||
+        req.user.role === 'manager' ||
+        req.user.permissions?.includes('manage_orders');
+
+      if (!isAuthorized) {
         return res.status(401).json({ message: "Not authorized to view this order" });
       }
       res.status(200).json(order);
@@ -745,6 +752,54 @@ const getAdminStats = async (req, res) => {
     ]);
     const customerRetention = retentionStats[0] || { new: 0, returning: 0 };
 
+    // 14. Sales by Category (Req: Lookup Product)
+    const salesByCategory = await Order.aggregate([
+      { $match: { isPaid: true } },
+      { $unwind: "$orderItems" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "orderItems.product",
+          foreignField: "_id",
+          as: "productDetails"
+        }
+      },
+      { $unwind: "$productDetails" },
+      {
+        $group: {
+          _id: "$productDetails.category",
+          value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } }
+        }
+      },
+      { $project: { name: "$_id", value: 1, _id: 0 } },
+      { $sort: { value: -1 } }
+    ]);
+
+    // 15. Subcategory Performance
+    const subcategorySales = await Order.aggregate([
+      { $match: { isPaid: true } },
+      { $unwind: "$orderItems" },
+      {
+        $lookup: {
+          from: "products",
+          localField: "orderItems.product",
+          foreignField: "_id",
+          as: "productDetails"
+        }
+      },
+      { $unwind: "$productDetails" },
+      {
+        $group: {
+          _id: "$productDetails.subcategory", // Ensure your Product model has this field or 'type'
+          value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } }
+        }
+      },
+      { $match: { _id: { $ne: null } } }, // Filter out undefined subcategories
+      { $project: { name: "$_id", value: 1, _id: 0 } },
+      { $sort: { value: -1 } },
+      { $limit: 10 }
+    ]);
+
     res.json({
       totalSales,
       totalOrders,
@@ -762,7 +817,9 @@ const getAdminStats = async (req, res) => {
       totalDiscounts,
       referralRevenue,
       trafficSrc,
-      customerRetention
+      customerRetention,
+      salesByCategory,
+      subcategorySales
     });
 
   } catch (error) {
@@ -992,6 +1049,10 @@ const handleReturnAction = async (req, res) => {
         if (item.returnRequest.reason !== 'Damaged Product') {
           const product = await Product.findById(item.product);
           if (product) {
+            // The provided code snippet for AdminLayout.jsx was incorrectly placed here.
+            // It has been removed to maintain the syntactic correctness of this file.
+            // The instruction to update AdminLayout.jsx cannot be applied to this file.
+            // The instruction to update getOrderById is handled below.
             const qty = item.qty || item.quantity;
 
             // 1. Update Variant Stock

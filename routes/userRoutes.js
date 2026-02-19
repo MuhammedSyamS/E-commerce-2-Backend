@@ -1,10 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const { toggleWishlist, addAddress, removeAddress, updateProfile, getNotifications, markNotificationRead, addCard, removeCard } = require('../controllers/userController');
-const { protect, admin } = require('../middleware/authMiddleware');
+const { protect, admin, hasPermission } = require('../middleware/authMiddleware');
 
 // All wishlist actions require being logged in
 router.post('/wishlist', protect, toggleWishlist);
+router.get('/wishlist', protect, require('../controllers/userController').getWishlist);
 
 // Address Book
 router.post('/addresses', protect, addAddress);
@@ -43,12 +44,12 @@ router.post('/verify-otp', protect, require('../controllers/userController').ver
 
 const userController = require('../controllers/userController');
 
-router.get('/', protect, admin, userController.getUsers);
-router.delete('/:id', protect, admin, userController.deleteUser);
-router.put('/:id/role', protect, admin, userController.updateUserRole);
-router.put('/:id/block', protect, admin, userController.toggleBlockUser);
-router.put('/:id/permissions', protect, admin, userController.updateUserPermissions);
-router.get('/logs', protect, admin, userController.getLogs);
+router.get('/', protect, hasPermission('manage_users'), userController.getUsers);
+router.delete('/:id', protect, hasPermission('manage_users'), userController.deleteUser);
+router.put('/:id/role', protect, hasPermission('manage_users'), userController.updateUserRole);
+router.put('/:id/block', protect, hasPermission('manage_users'), userController.toggleBlockUser);
+router.put('/:id/permissions', protect, hasPermission('manage_users'), userController.updateUserPermissions);
+router.get('/logs', protect, hasPermission('manage_users'), userController.getLogs);
 
 // Abandoned Cart Management
 router.get('/admin/abandoned-carts', protect, admin, userController.getAbandonedCarts);
