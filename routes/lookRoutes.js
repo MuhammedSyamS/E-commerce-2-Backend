@@ -3,7 +3,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
-const { protect, admin, manager } = require('../middleware/authMiddleware');
+const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
 const {
     createLook,
     getAllLooks,
@@ -51,8 +51,8 @@ router.route('/')
 router.get('/my', protect, getMyLooks);
 
 // Admin Routes
-router.get('/admin', protect, manager, getAllLooksAdmin);
-router.patch('/:id/status', protect, manager, updateLookStatus);
+router.get('/admin', protect, hasPermission('manage_looks'), getAllLooksAdmin);
+router.patch('/:id/status', protect, hasPermission('manage_looks'), updateLookStatus);
 
 router.post('/:id/like', protect, toggleLike);
 

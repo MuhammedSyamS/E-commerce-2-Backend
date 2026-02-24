@@ -4,10 +4,9 @@ const { logStockChange } = require('../utils/stockUtils');
 exports.searchProducts = async (req, res) => {
   try {
     const { keyword } = req.query;
-    if (!keyword) return res.json([]);
+    if (!keyword) return res.json({ products: [], categories: [] });
 
-    // Using MongoDB $text search if indexed, but for now let's use a weighted regex match
-    // to avoid requiring a specific atlas index if not present
+    // 1. Search Products
     const products = await Product.find({
       $or: [
         { name: { $regex: keyword, $options: 'i' } },
@@ -15,11 +14,8 @@ exports.searchProducts = async (req, res) => {
       ]
     })
       .select('name slug image price category tags')
-      .limit(20);
+      .limit(30);
 
-    // Simple JS-side sorting as a proxy for relevance
-    // 1. Matches in Name are highest priority
-    // 2. Matches in Tags are secondary
     const scoredProducts = products.map(p => {
       let score = 0;
       if (p.name.toLowerCase().includes(keyword.toLowerCase())) score += 10;
@@ -27,7 +23,15 @@ exports.searchProducts = async (req, res) => {
       return { ...p.toObject(), searchScore: score };
     }).sort((a, b) => b.searchScore - a.searchScore).slice(0, 5);
 
-    res.json(scoredProducts);
+    // 2. Extract Matching Categories
+    const categories = await Product.distinct('category', {
+      category: { $regex: keyword, $options: 'i' }
+    });
+
+    res.json({
+      products: scoredProducts,
+      categories: categories.slice(0, 3)
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -95,17 +99,21 @@ exports.getProducts = async (req, res) => {
       }
     }
 
+    const pageSize = Number(req.query.pageSize) || 20;
+    const page = Number(req.query.page) || 1;
+    const skip = (page - 1) * pageSize;
+
     const count = await Product.countDocuments(query);
     const products = await Product.find(query)
       .sort(sortOption)
-      .limit(Number(req.query.pageSize) || 1000)
-      .skip(Number(req.query.skip) || (Number(req.query.page) - 1) * (Number(req.query.pageSize) || 0) || 0);
+      .limit(pageSize)
+      .skip(skip);
 
     if (req.query.page || req.query.pageSize) {
       return res.status(200).json({
         products,
-        page: Number(req.query.page) || 1,
-        pages: Math.ceil(count / (Number(req.query.pageSize) || 20)),
+        page,
+        pages: Math.ceil(count / pageSize),
         total: count
       });
     }
@@ -644,10 +652,10 @@ exports.updateProduct = async (req, res) => {
           productId: product._id,
           oldStock: oldStock,
           newStock: updatedProduct.countInStock,
-          reason: 'Admin Adjustment',
+          reason: req.body.stockReason || 'Admin Adjustment',
           referenceId: req.user._id,
           adminId: req.user._id,
-          note: `Direct update via Admin Panel`
+          note: req.body.stockNote || `Direct update via Admin Panel`
         });
       }
 
@@ -667,10 +675,10 @@ exports.updateProduct = async (req, res) => {
                 variant: { size: newVar.size, color: newVar.color },
                 oldStock: oldVar.stock,
                 newStock: newVar.stock,
-                reason: 'Admin Adjustment',
+                reason: req.body.stockReason || 'Admin Adjustment',
                 referenceId: req.user._id,
                 adminId: req.user._id,
-                note: `Variant Stock Adjusted`
+                note: req.body.stockNote || `Variant Stock Adjusted`
               });
             }
           } else {
@@ -785,8 +793,14 @@ exports.bulkUpdateProducts = async (req, res) => {
     const productIds = Object.keys(edits);
     const updatePromises = productIds.map(async (id) => {
       const updateData = edits[id];
-      // Filter out only allowed fields
-      const allowedFields = ['price', 'countInStock', 'category', 'isActive'];
+      const product = await Product.findById(id);
+      if (!product) return null;
+
+      const oldStock = product.countInStock;
+      const newStock = updateData.countInStock !== undefined ? Number(updateData.countInStock) : oldStock;
+
+      // Filter out only allowed fields for direct update
+      const allowedFields = ['price', 'category', 'isActive'];
       const filteredUpdate = {};
       Object.keys(updateData).forEach(field => {
         if (allowedFields.includes(field)) {
@@ -794,12 +808,54 @@ exports.bulkUpdateProducts = async (req, res) => {
         }
       });
 
+      // Handle Stock separately for logging
+      if (updateData.countInStock !== undefined && oldStock !== newStock) {
+        filteredUpdate.countInStock = newStock;
+        await logStockChange({
+          productId: id,
+          oldStock: oldStock,
+          newStock: newStock,
+          reason: req.body.stockReason || 'Admin Adjustment',
+          adminId: req.user._id,
+          note: req.body.stockNote || 'Bulk Update'
+        });
+      }
+
       return Product.findByIdAndUpdate(id, { $set: filteredUpdate }, { new: true });
     });
 
     await Promise.all(updatePromises);
-    res.status(200).json({ message: 'Products updated successfully' });
+    res.json({ message: 'Products updated successfully' });
   } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Manual Stock Adjustment (Restock)
+// @route   POST /api/products/:id/stock
+// @access  Private/Admin
+exports.manualRestock = async (req, res) => {
+  try {
+    const { qty, variant, reason, note } = req.body;
+    const { adjustStock } = require('../utils/stockUtils');
+
+    if (!qty || isNaN(qty)) {
+      return res.status(400).json({ message: "Valid quantity is required" });
+    }
+
+    const updatedProduct = await adjustStock(
+      req.params.id,
+      variant,
+      Number(qty),
+      reason || 'Restock',
+      'Manual',
+      req.user._id,
+      note
+    );
+
+    res.json(updatedProduct);
+  } catch (error) {
+    console.error("Restock Error:", error.message);
     res.status(500).json({ message: error.message });
   }
 };
@@ -905,6 +961,7 @@ const triggerWaitlistNotifications = async (product, variant = null) => {
     for (const item of waitlisted) {
       try {
         await sendEmail({
+          type: 'press',
           email: item.email,
           subject: `Good news! ${product.name} is back in stock`,
           html: `

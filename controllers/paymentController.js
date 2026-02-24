@@ -61,21 +61,39 @@ const verifyPayment = async (req, res) => {
     try {
         const { razorpay_order_id, razorpay_payment_id, razorpay_signature, orderId } = req.body;
 
+        console.log("🔍 PAYMENT VERIFY: Received", {
+            razorpay_order_id,
+            razorpay_payment_id,
+            has_signature: !!razorpay_signature,
+            orderId
+        });
+
         // MOCK VERIFICATION LOGIC
-        if (razorpay_order_id.startsWith('order_mock_')) {
+        if (razorpay_order_id && razorpay_order_id.startsWith('order_mock_')) {
             console.log("⚠️ VERIFYING MOCK PAYMENT");
-            // Skip crypto check, just ensure payment_id exists
             if (!razorpay_payment_id) return res.status(400).json({ message: "Invalid Mock Payment" });
         } else {
             // REAL RAZORPAY VERIFICATION
+            if (!razorpay_signature) {
+                console.error("❌ PAYMENT VERIFY: Missing signature — possible UPI async issue");
+                return res.status(400).json({ message: "Payment signature missing. Try again or use another payment method." });
+            }
+
             const body = razorpay_order_id + "|" + razorpay_payment_id;
             const expectedSignature = crypto
                 .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || 'secret_placeholder')
                 .update(body.toString())
                 .digest('hex');
 
+            console.log("🔑 PAYMENT VERIFY: Expected vs Received", {
+                expected: expectedSignature,
+                received: razorpay_signature,
+                match: expectedSignature === razorpay_signature
+            });
+
             if (expectedSignature !== razorpay_signature) {
-                return res.status(400).json({ message: "Invalid Payment Signature" });
+                console.error("❌ PAYMENT VERIFY: Signature mismatch!");
+                return res.status(400).json({ message: "Payment signature invalid. Please contact support." });
             }
         }
 
@@ -91,14 +109,24 @@ const verifyPayment = async (req, res) => {
                 email_address: req.user.email
             };
             await order.save();
+            console.log("✅ PAYMENT VERIFY: Order", orderId, "marked as paid");
+
+            // --- AWARD COINS ---
+            try {
+                await orderController.awardOrderCoins(order._id);
+            } catch (coinErr) {
+                console.error("❌ COINS: Failed to award after payment:", coinErr.message);
+            }
+
             res.json({ message: "Payment Verified", orderId: order._id });
         } else {
+            console.error("❌ PAYMENT VERIFY: Order not found:", orderId);
             res.status(404).json({ message: "Order not found" });
         }
 
     } catch (error) {
-        console.error("Razorpay Verify Error:", error);
-        res.status(500).json({ message: "Payment verification failed" });
+        console.error("❌ Razorpay Verify Error:", error);
+        res.status(500).json({ message: "Payment verification failed", detail: error.message });
     }
 };
 

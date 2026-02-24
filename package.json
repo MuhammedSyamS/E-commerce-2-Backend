@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node index.js",
-    "dev": "node --watch index.js",
+    "dev": "nodemon --watch . --ext js,json,env index.js",
     "cleanup": "node scripts/force_cleanup.js"
   },
   "dependencies": {
@@ -42,5 +42,8 @@
   "bugs": {
     "url": "https://github.com/MuhammedSyamS/E-commerce-2-Backend/issues"
   },
-  "homepage": "https://github.com/MuhammedSyamS/E-commerce-2-Backend#readme"
+  "homepage": "https://github.com/MuhammedSyamS/E-commerce-2-Backend#readme",
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
 }

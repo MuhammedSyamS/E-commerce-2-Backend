@@ -7,9 +7,13 @@ const {
     getAllTickets,
     updateTicket,
     deleteTicket,
-    submitContact
+    submitContact,
+    getAllContacts,
+    updateContact,
+    deleteContact,
+    replyToEnquiry,
 } = require('../controllers/supportController');
-const { protect, admin, manager } = require('../middleware/authMiddleware');
+const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
 
 // Public Routes
 router.route('/contact').post(submitContact);
@@ -19,9 +23,15 @@ router.route('/').post(protect, createTicket);
 router.route('/my-tickets').get(protect, getMyTickets);
 router.route('/:id').get(protect, getTicketById);
 
-// Admin Routes
-router.route('/admin/all').get(protect, manager, getAllTickets); // Managers can view
-router.route('/:id').put(protect, manager, updateTicket);
-router.route('/:id').delete(protect, admin, deleteTicket); // Only Admin delete
+// Admin Routes — Contacts/Enquiries
+router.route('/admin/all').get(protect, hasPermission('manage_support'), getAllTickets);
+router.route('/admin/contacts').get(protect, hasPermission('manage_support'), getAllContacts);
+router.route('/admin/contacts/:id').put(protect, hasPermission('manage_support'), updateContact);
+router.route('/admin/contacts/:id').delete(protect, admin, deleteContact);
+router.route('/admin/contacts/:id/reply').post(protect, hasPermission('manage_support'), replyToEnquiry);
+
+// Admin Routes — Tickets
+router.route('/:id').put(protect, hasPermission('manage_support'), updateTicket);
+router.route('/:id').delete(protect, admin, deleteTicket);
 
 module.exports = router;

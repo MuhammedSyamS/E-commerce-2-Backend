@@ -161,6 +161,11 @@ const io = new Server(server, {
 io.on('connection', (socket) => {
   logger.info('New Socket Connection: %s', socket.id);
 
+  socket.on('join-user-room', (userId) => {
+    socket.join(userId);
+    logger.info('Socket %s joined room: %s', socket.id, userId);
+  });
+
   socket.on('disconnect', () => {
     logger.info('Socket Disconnected: %s', socket.id);
   });
@@ -171,13 +176,15 @@ app.set('socketio', io);
 
 // --- SERVER START ---
 const PORT = process.env.PORT || 5005;
-server.listen(PORT, '127.0.0.1', () => {
-  logger.info(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
+
+server.listen(PORT, '0.0.0.0', () => {
+  logger.info(`✅ Server running on port ${PORT}`);
 }).on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    logger.error(`❌ Port ${PORT} is already in use.`);
+    logger.error(`❌ Port ${PORT} is busy. Please close other server terminals!`);
+    process.exit(1);
   } else {
-    logger.error('❌ Server Error: %o', err);
+    logger.error('❌ Server startup error:', err);
+    process.exit(1);
   }
-  process.exit(1);
 });

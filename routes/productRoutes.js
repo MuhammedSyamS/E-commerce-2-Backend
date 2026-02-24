@@ -110,6 +110,7 @@ router.get('/admin/reviews', protect, hasPermission('manage_reviews'), require('
  * @access  Private/Admin/Manager
  */
 router.get('/:id/stock-logs', protect, hasPermission('manage_products'), require('../controllers/productController').getStockLogs);
+router.post('/:id/stock', protect, hasPermission('manage_products'), require('../controllers/productController').manualRestock);
 
 // REVIEWS (User)
 /**

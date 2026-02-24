@@ -7,7 +7,7 @@ const userSchema = new mongoose.Schema({
   email: { type: String, required: true, unique: true },
   phone: { type: String, required: false },
   password: { type: String, required: true },
-  role: { type: String, enum: ['customer', 'admin', 'manager', 'delivery'], default: 'customer' }, // NEW: Role Management
+  role: { type: String, enum: ['customer', 'admin', 'manager', 'delivery', 'client_support_executive', 'digital_marketing_executive'], default: 'customer' }, // NEW: Role Management
   isBlocked: { type: Boolean, default: false }, // NEW: Block User
   isAdmin: { type: Boolean, required: true, default: false },
   isSuperAdmin: { type: Boolean, default: false }, // Full Access

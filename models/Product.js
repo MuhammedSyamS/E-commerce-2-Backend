@@ -42,7 +42,8 @@ const productSchema = new mongoose.Schema({
     size: { type: String },
     color: { type: String },
     stock: { type: Number, default: 0 },
-    price: { type: Number } // Optional override
+    price: { type: Number }, // Optional override
+    image: { type: String } // NEW: Color-specific picture
   }],
   seo: {
     metaTitle: { type: String },

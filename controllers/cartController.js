@@ -13,6 +13,9 @@ const addToCart = async (req, res) => {
     const { productId, quantity, selectedVariant } = req.body;
     const user = await User.findById(req.user._id);
 
+    // Clean up any null-product items (from re-seeds or deleted products)
+    user.cart = user.cart.filter(item => item.product != null);
+
     const itemIndex = user.cart.findIndex(item => {
       return item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);
     });
@@ -33,6 +36,7 @@ const addToCart = async (req, res) => {
     await user.save();
     res.status(200).json(user.cart);
   } catch (error) {
+    console.error('ADD TO CART ERROR:', error.message);
     res.status(500).json({ message: "Add failed", error: error.message });
   }
 };
@@ -42,6 +46,7 @@ const decreaseQuantity = async (req, res) => {
   try {
     const { productId, selectedVariant } = req.body;
     const user = await User.findById(req.user._id);
+    user.cart = user.cart.filter(item => item.product != null); // Clean nulls
 
     const itemIndex = user.cart.findIndex(item => {
       return item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);

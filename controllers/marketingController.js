@@ -200,6 +200,7 @@ exports.subscribeNewsletter = async (req, res) => {
         // --- SEND WELCOME EMAIL ---
         try {
             await sendEmail({
+                type: 'press',
                 email: newsletter.email,
                 subject: 'Welcome to the SLOOK Inner Circle! ✨',
                 html: getNewsletterWelcomeTemplate(newsletter.email)
@@ -389,6 +390,7 @@ exports.createBroadcast = async (req, res) => {
             for (const email of recipients) {
                 try {
                     await sendEmail({
+                        type: 'press',
                         email,
                         subject,
                         html: content

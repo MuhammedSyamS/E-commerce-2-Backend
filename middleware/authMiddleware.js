@@ -44,7 +44,8 @@ const protect = async (req, res, next) => {
  * admin: Middleware to restrict access to admin users only
  */
 const admin = (req, res, next) => {
-  if (req.user && (req.user.isAdmin || req.user.role === 'admin')) {
+  const isStaff = req.user && (req.user.isAdmin || ['admin', 'manager', 'client_support_executive', 'digital_marketing_executive'].includes(req.user.role));
+  if (isStaff) {
     next();
   } else {
     res.status(403).json({ message: 'Access denied: Requires administrator privileges' });
@@ -65,6 +66,13 @@ const hasPermission = (permission) => {
     if (req.user.isAdmin || req.user.role === 'admin' || req.user.isSuperAdmin) {
       return next();
     }
+
+    // Role-based baseline permissions
+    if (permission === 'manage_support' && req.user.role === 'client_support_executive') return next();
+    if (permission === 'manage_reviews' && req.user.role === 'client_support_executive') return next();
+    if (permission === 'manage_looks' && req.user.role === 'client_support_executive') return next();
+    if (permission === 'manage_blog' && req.user.role === 'digital_marketing_executive') return next();
+    if (permission === 'manage_products' && req.user.role === 'digital_marketing_executive') return next();
 
     // Check specific permission
     if (req.user.permissions && req.user.permissions.includes(permission)) {

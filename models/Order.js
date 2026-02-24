@@ -59,8 +59,13 @@ const orderSchema = new mongoose.Schema({
   },
   orderNote: { type: String },
   isDispatched: { type: Boolean, required: true, default: false },
+  dispatchedAt: { type: Date },
+  processingAt: { type: Date },
+  confirmedAt: { type: Date },
+  shippedAt: { type: Date },
   isDelivered: { type: Boolean, required: true, default: false },
   deliveredAt: { type: Date },
+  returnedAt: { type: Date },
 
   // --- RETURN SYSTEM ---
   returnStatus: {
@@ -71,6 +76,7 @@ const orderSchema = new mongoose.Schema({
   returnReason: { type: String },
   returnRequestedAt: { type: Date },
   returnMetadata: { type: Object }, // Flexible field for images/comments later
+  isCoinsAwarded: { type: Boolean, default: false }, // Prevent double-awarding
 }, { timestamps: true });
 
 module.exports = mongoose.model('Order', orderSchema);

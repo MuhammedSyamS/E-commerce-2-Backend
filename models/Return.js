@@ -19,10 +19,7 @@ const returnSchema = mongoose.Schema({
         image: { type: String, required: true },
         price: { type: Number, required: true },
         product: { type: mongoose.Schema.Types.ObjectId, ref: 'Product' },
-        selectedVariant: {
-            size: String,
-            color: String
-        }
+        selectedVariant: { type: Object, default: null },
     },
     type: {
         type: String,
@@ -32,10 +29,7 @@ const returnSchema = mongoose.Schema({
     reason: { type: String, required: true },
     comment: { type: String },
     images: [String],
-    requestedVariant: {
-        size: String,
-        color: String
-    },
+    requestedVariant: { type: Object, default: null },
 
     // LIFECYCLE STATE
     status: {

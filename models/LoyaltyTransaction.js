@@ -9,7 +9,7 @@ const loyaltyTransactionSchema = new mongoose.Schema({
     },
     type: {
         type: String,
-        enum: ['earn', 'spend', 'refund', 'bonus', 'referral'],
+        enum: ['earn', 'spend', 'refund', 'bonus', 'referral', 'expire'],
         required: true
     },
     amount: {
@@ -19,6 +19,14 @@ const loyaltyTransactionSchema = new mongoose.Schema({
     description: {
         type: String,
         required: true
+    },
+    expiryDate: {
+        type: Date,
+        required: false // Only for 'earn' types
+    },
+    isExpired: {
+        type: Boolean,
+        default: false
     },
     referenceId: {
         type: mongoose.Schema.Types.ObjectId,

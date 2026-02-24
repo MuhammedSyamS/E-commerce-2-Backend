@@ -33,93 +33,19 @@ const startCronJobs = () => {
             console.log(`⚠️ Found ${staleOrders.length} stale orders. Processing...`);
 
             for (const order of staleOrders) {
+                if (!order || !order.orderItems) continue;
                 console.log(`Checking Order ${order._id}...`);
 
-                let stockRestored = false;
+                // --- SYSTEMATIC CHANGE: NO AUTOMATIC RESTORE ---
+                // The user requested that stock should NOT be added automatically.
+                // We will only mark the order as Cancelled. 
+                // Stock must be restored manually by an admin if desired.
 
-                // Restore Stock for each item
-                for (const item of order.orderItems) {
-                    // Safety check: Don't double restore if we track item status (which we do, but 'Pending' implies untouched)
-                    // But let's check strict item status just in case
-                    if (item.status === 'Cancelled' || item.status === 'Returned') continue;
-
-                    const product = await Product.findById(item.product);
-                    if (product) {
-                        const qty = item.qty || item.quantity;
-
-                        // Variant logic
-                        if (item.selectedVariant) {
-                            const vIndex = product.variants.findIndex(v =>
-                                v.size === item.selectedVariant.size &&
-                                v.color === item.selectedVariant.color
-                            );
-
-                            if (vIndex !== -1) {
-                                const oldStockVar = product.variants[vIndex].stock;
-                                product.variants[vIndex].stock += qty;
-
-                                const oldStockMain = product.countInStock;
-                                product.countInStock += qty; // Sync main stock
-
-                                logStockChange({
-                                    productId: product._id,
-                                    variant: item.selectedVariant,
-                                    oldStock: oldStockVar,
-                                    newStock: product.variants[vIndex].stock,
-                                    reason: 'Cron Restore',
-                                    referenceId: order._id, // Using Order ID as reference
-                                    note: `Cron: Stale Pending Order Cleanup`
-                                });
-                                logStockChange({
-                                    productId: product._id,
-                                    oldStock: oldStockMain,
-                                    newStock: product.countInStock,
-                                    reason: 'Cron Restore',
-                                    referenceId: order._id,
-                                    note: `Cron: Stale Pending Order Cleanup (Main Sync)`
-                                });
-
-                                console.log(`   + Restored ${qty} to ${product.name} (${item.selectedVariant.size}/${item.selectedVariant.color})`);
-                            } else {
-                                // Variant missing? Fallback to main stock
-                                const oldStock = product.countInStock;
-                                product.countInStock += qty;
-                                logStockChange({
-                                    productId: product._id,
-                                    oldStock: oldStock,
-                                    newStock: product.countInStock,
-                                    reason: 'Cron Restore',
-                                    referenceId: order._id,
-                                    note: `Cron: Stale Pending Order Cleanup (Variant Mismatch)`
-                                });
-                                console.log(`   + Restored ${qty} to ${product.name} (Variant mismatch fallback)`);
-                            }
-                        } else {
-                            // No variant
-                            const oldStock = product.countInStock;
-                            product.countInStock += qty;
-                            logStockChange({
-                                productId: product._id,
-                                oldStock: oldStock,
-                                newStock: product.countInStock,
-                                reason: 'Cron Restore',
-                                referenceId: order._id,
-                                note: `Cron: Stale Pending Order Cleanup`
-                            });
-                            console.log(`   + Restored ${qty} to ${product.name}`);
-                        }
-
-                        await product.save();
-                        stockRestored = true;
-                    }
-                }
+                console.log(`   - Order ${order._id} is stale. Cancelling WITHOUT automatic stock restore.`);
 
                 // Mark Order as Cancelled
                 order.orderStatus = 'Cancelled';
-                order.isDelivered = false; // Just to be sure
-
-                // Add a note if possible, or just save
-                // Schema doesn't have internal notes, so just status update
+                order.orderNote = (order.orderNote || '') + ' [Auto-Cancelled: Stale Pending Payment]';
                 await order.save();
                 console.log(`❌ Order ${order._id} Cancelled (Stale).`);
             }
@@ -222,6 +148,46 @@ const startCronJobs = () => {
                 }
             }
             console.log(`✅ Processed ${lowStockProducts.length} low stock checks.`);
+
+            // 3. Loyalty Points Expiration (90 Days)
+            console.log('🪙 Checking for Expired Slook Coins...');
+            const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+
+            // Find 'earn' transactions that are expired but not yet processed
+            const expiredTxs = await LoyaltyTransaction.find({
+                type: 'earn',
+                isExpired: false,
+                expiryDate: { $lt: now }
+            });
+
+            if (expiredTxs.length > 0) {
+                console.log(`⚠️ Found ${expiredTxs.length} expired coin transactions. Deducting...`);
+                for (const tx of expiredTxs) {
+                    const user = await User.findById(tx.user);
+                    if (user) {
+                        const amountToDeduct = tx.amount;
+                        user.loyaltyPoints = Math.max(0, user.loyaltyPoints - amountToDeduct);
+                        await user.save();
+
+                        // Mark transaction as expired
+                        tx.isExpired = true;
+                        await tx.save();
+
+                        // Log Expiration Transaction
+                        await LoyaltyTransaction.create({
+                            user: user._id,
+                            type: 'expire',
+                            amount: amountToDeduct,
+                            description: `Coins expired (90-day limit reached)`,
+                            referenceId: tx._id, // Reference the original earn tx
+                            referenceModel: 'User' // Or keep blank
+                        });
+                        console.log(`   - Deducted ${amountToDeduct} coins from ${user.email} due to expiry.`);
+                    }
+                }
+            } else {
+                console.log('✅ No expired coins found.');
+            }
 
         } catch (error) {
             console.error('❌ System Cleanup Error:', error.message);
