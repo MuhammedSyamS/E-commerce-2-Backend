@@ -77,11 +77,17 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
+
+      const normalizedOrigin = origin.trim().toLowerCase();
+      const isAllowed = allowedOrigins.some(o => o.trim().toLowerCase() === normalizedOrigin);
+
+      if (isAllowed) {
         return callback(null, true);
       }
-      logger.warn(`CORS blocked for origin: ${origin}`);
+
+      logger.warn(`🚫 CORS BLOCKED | Origin: ${origin} | Allowed: ${allowedOrigins.join(', ')}`);
       return callback(new Error("CORS blocked"));
     },
     credentials: true,
