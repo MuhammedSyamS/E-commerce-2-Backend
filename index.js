@@ -99,6 +99,9 @@ app.use(
 // ============================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
+// --- HEALTH CHECK ---
+app.get("/api/health", (req, res) => res.status(200).json({ status: "ok", timestamp: new Date() }));
+
 // ============================
 // 📦 ROUTES
 // ============================
