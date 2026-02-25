@@ -1,6 +1,7 @@
 require('dotenv').config();
 const logger = require('./utils/logger');
-logger.info("SERVER STARTUP: Loading Environment...");
+const vault = require('./config/vault');
+logger.info("SERVER STARTUP: Loading Environment via Vault...");
 
 // --- GLOBAL PROCESS ERROR HANDLERS ---
 process.on('uncaughtException', (err) => {
@@ -11,7 +12,7 @@ process.on('unhandledRejection', (reason, promise) => {
   logger.error('🌊 UNHANDLED REJECTION:', reason);
 });
 
-logger.info("RAZORPAY_KEY_ID Loaded: %s", process.env.RAZORPAY_KEY_ID ? "YES (" + process.env.RAZORPAY_KEY_ID.substring(0, 5) + "...)" : "NO");
+logger.info("RAZORPAY_KEY_ID Loaded: %s", vault.RAZORPAY_KEY_ID ? "YES (" + vault.RAZORPAY_KEY_ID.substring(0, 5) + "...)" : "NO");
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -68,8 +69,9 @@ app.use(express.json({ limit: '50mb' }));
 const allowedOrigins = [
   'http://localhost:5173', // Local Dev
   'https://slook.luxury', // Primary Production
-  'https://slook-store.vercel.app' // Fallback
-];
+  'https://slook-store.vercel.app', // Fallback
+  vault.CLIENT_URL // Dynamic Deployment URL
+].filter(Boolean);
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -86,7 +88,7 @@ app.use(cors({
 
 
 // --- DATABASE CONNECTION ---
-mongoose.connect(process.env.MONGO_URI)
+mongoose.connect(vault.MONGO_URI)
   .then(() => logger.info('SLOOK MongoDB Connected Successfully'))
   .catch(err => {
     logger.error('Database Connection Error: %s', err.message);
@@ -142,7 +144,7 @@ app.use((err, req, res, next) => {
   const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
   res.status(statusCode).json({
     message: err.message,
-    stack: process.env.NODE_ENV === 'production' ? null : err.stack,
+    stack: vault.NODE_ENV === 'production' ? null : err.stack,
   });
 });
 
@@ -175,7 +177,7 @@ io.on('connection', (socket) => {
 app.set('socketio', io);
 
 // --- SERVER START ---
-const PORT = process.env.PORT || 5005;
+const PORT = vault.PORT;
 
 server.listen(PORT, '0.0.0.0', () => {
   logger.info(`✅ Server running on port ${PORT}`);
