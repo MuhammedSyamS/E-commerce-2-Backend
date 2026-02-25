@@ -70,6 +70,7 @@ const allowedOrigins = [
   "http://localhost:5173",
   "https://slook-store.vercel.app",
   "https://slook.luxury",
+  "https://slook.onrender.com",
   vault.CLIENT_URL,
 ].filter(Boolean);
 
