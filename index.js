@@ -1,38 +1,45 @@
 require("dotenv").config();
+const logger = require("./utils/logger");
+const vault = require("./config/vault");
 
 const express = require("express");
-const http = require("http");
 const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
+const http = require("http");
 const { Server } = require("socket.io");
 const path = require("path");
 
-const logger = require("./utils/logger");
-const vault = require("./config/vault");
+// Route imports
+const authRoutes = require("./routes/authRoutes");
+const userRoutes = require("./routes/userRoutes");
+const productRoutes = require("./routes/productRoutes");
+const orderRoutes = require("./routes/orderRoutes");
+const couponRoutes = require("./routes/couponRoutes");
+const returnRoutes = require("./routes/returnRoutes");
+const reportRoutes = require("./routes/reportRoutes");
+const marketingRoutes = require("./routes/marketingRoutes");
+const lookRoutes = require("./routes/lookRoutes");
+const settingsRoutes = require("./routes/settingsRoutes");
+const cartRoutes = require("./routes/cartRoutes");
+const wishlistRoutes = require("./routes/wishlistRoutes");
+const notificationRoutes = require("./routes/notificationRoutes");
+const paymentRoutes = require("./routes/paymentRoutes");
+const supportRoutes = require("./routes/supportRoutes");
+const blogRoutes = require("./routes/blogRoutes");
+const uploadRoutes = require("./routes/uploadRoutes");
+const alertRoutes = require("./routes/alertRoutes");
+const aiRoutes = require("./routes/aiRoutes");
+const seoRoutes = require("./routes/seoRoutes");
 
-// ============================
-// 🔐 ENV VALIDATION (Fail Fast)
-// ============================
-const requiredEnv = ["MONGO_URI", "JWT_SECRET"];
-requiredEnv.forEach((key) => {
-  if (!vault[key] && !process.env[key]) {
-    logger.error(`❌ Missing required environment variable: ${key}`);
-    process.exit(1);
-  }
-});
-
-// ============================
-// 🚀 CREATE APP & SERVER
-// ============================
 const app = express();
 const server = http.createServer(app);
 
-// ============================
-// � SECURITY MIDDLEWARE
-// ============================
+// =======================
+// 🔐 SECURITY MIDDLEWARE
+// =======================
 app.use(
   helmet({
     crossOriginResourcePolicy: { policy: "cross-origin" },
@@ -40,190 +47,108 @@ app.use(
 );
 
 app.use(compression());
-// Use 50mb limit as per previous stable configuration for image uploads
+
 app.use(express.json({ limit: "50mb" }));
 
-// ============================
+// =======================
 // 🚦 RATE LIMITING
-// ============================
+// =======================
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 15, // Limit each IP to 15 login/register attempts per hour
-  message: "Too many attempts from this IP, please try again after an hour",
-  standardHeaders: true,
-  legacyHeaders: false,
 });
 
 app.use("/api", apiLimiter);
-app.use("/api/auth", authLimiter);
 
-// ============================
+// =======================
 // 🌍 CORS
-// ============================
+// =======================
 const allowedOrigins = [
   "http://localhost:5173",
   "https://slook-store.vercel.app",
-  "https://slook.luxury",
   vault.CLIENT_URL,
 ].filter(Boolean);
 
 app.use(
   cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl)
+    origin: function (origin, callback) {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
+      if (!allowedOrigins.includes(origin)) {
+        return callback(new Error("Not allowed by CORS"));
       }
-      logger.warn(`CORS blocked for origin: ${origin}`);
-      return callback(new Error("CORS blocked"));
+      return callback(null, true);
     },
     credentials: true,
   })
 );
 
-// ============================
-// 📂 STATIC FILES
-// ============================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+// =======================
+// 📂 ROUTES
+// =======================
+app.use('/api/users', authRoutes); // Auth (Login/Register)
+app.use('/api/users', userRoutes); // User Profile & Management
+app.use('/api/products', productRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/coupons', couponRoutes);
+app.use('/api/returns', returnRoutes);
+app.use('/api/reports', reportRoutes);
+app.use('/api/marketing', marketingRoutes);
+app.use('/api/looks', lookRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/support', supportRoutes);
+app.use('/api/blog', blogRoutes);
+app.use('/api/upload', uploadRoutes);
+app.use('/api/alerts', alertRoutes);
+app.use('/api/ai', aiRoutes);
+app.use('/', seoRoutes);
 
-// ============================
-// 📦 ROUTES
-// ============================
-app.use("/api/users", require("./routes/authRoutes"));
-app.use("/api/users", require("./routes/userRoutes"));
-app.use("/api/products", require("./routes/productRoutes"));
-app.use("/api/orders", require("./routes/orderRoutes"));
-app.use("/api/coupons", require("./routes/couponRoutes"));
-app.use("/api/returns", require("./routes/returnRoutes"));
-app.use("/api/reports", require("./routes/reportRoutes"));
-app.use("/api/marketing", require("./routes/marketingRoutes"));
-app.use("/api/looks", require("./routes/lookRoutes"));
-app.use("/api/settings", require("./routes/settingsRoutes"));
-app.use("/api/cart", require("./routes/cartRoutes"));
-app.use("/api/wishlist", require("./routes/wishlistRoutes"));
-app.use("/api/notifications", require("./routes/notificationRoutes"));
-app.use("/api/payments", require("./routes/paymentRoutes"));
-app.use("/api/support", require("./routes/supportRoutes"));
-app.use("/api/blog", require("./routes/blogRoutes"));
-app.use("/api/upload", require("./routes/uploadRoutes"));
-app.use("/api/alerts", require("./routes/alertRoutes"));
-app.use("/api/ai", require("./routes/aiRoutes"));
-app.use("/", require("./routes/seoRoutes"));
+// Make uploads folder static
+app.use('/uploads', express.static(path.join(__dirname, '/uploads')));
 
-// ============================
-// ❤️ HEALTH CHECK (Render Recommended)
-// ============================
-app.get("/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    uptime: process.uptime(),
-    timestamp: Date.now(),
-    dbStatus: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected"
-  });
-});
-
-// ============================
-// 🌐 BASE ROUTE
-// ============================
 app.get("/", (req, res) => {
   res.status(200).send("SLOOK API Running");
 });
 
-// ============================
-// 🌍 SOCKET.IO
-// ============================
+// =======================
+// 🔌 SOCKET.IO
+// =======================
 const io = new Server(server, {
   cors: { origin: "*" },
 });
 
 io.on("connection", (socket) => {
-  logger.info(`🔌 Socket Connected: ${socket.id}`);
-
-  socket.on('join-user-room', (userId) => {
-    socket.join(userId);
-    logger.info(`Socket ${socket.id} joined room: ${userId}`);
-  });
+  logger.info(`Socket connected: ${socket.id}`);
 });
 
 app.set("socketio", io);
 
-// ============================
-// 🛡️ GLOBAL ERROR HANDLING
-// ============================
-app.use((err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  logger.error(`Global Error: ${err.message}`, { stack: err.stack, path: req.path });
-  res.status(statusCode).json({
-    message: err.message,
-    stack: vault.NODE_ENV === "production" ? null : err.stack,
-  });
+// =======================
+// 🚀 START SERVER FIRST
+// =======================
+const PORT = process.env.PORT || 5000;
+
+server.listen(PORT, () => {
+  logger.info(`✅ Server running on port ${PORT}`);
+
+  // Connect DB AFTER server starts
+  connectDatabase();
 });
 
-// ============================
-// � DATABASE CONNECTION
-// ============================
+// =======================
+// 🗄 DATABASE CONNECTION
+// =======================
 async function connectDatabase() {
   try {
     await mongoose.connect(vault.MONGO_URI);
     logger.info("✅ MongoDB Connected");
-  } catch (err) {
-    logger.error("❌ MongoDB Connection Failed:", err.message);
-    setTimeout(connectDatabase, 10000); // Retry
+  } catch (error) {
+    logger.error("❌ MongoDB Connection Failed:", error.message);
+
+    // Retry every 10 seconds instead of killing server
+    setTimeout(connectDatabase, 10000);
   }
 }
-
-// ============================
-// 🚀 START SERVER
-// ============================
-const PORT = vault.PORT || 5005;
-
-server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Server running on port ${PORT}`);
-
-  connectDatabase();
-
-  try {
-    const startCronJobs = require("./utils/cronJobs");
-    startCronJobs();
-  } catch (err) {
-    logger.warn("⚠️ Cron jobs failed to start:", err.message);
-  }
-});
-
-// ============================
-// � GRACEFUL SHUTDOWN
-// ============================
-const shutdown = async (signal) => {
-  logger.info(`${signal} received. Shutting down gracefully...`);
-  server.close(async () => {
-    logger.info("HTTP server closed.");
-    await mongoose.connection.close();
-    logger.info("MongoDB connection closed.");
-    process.exit(0);
-  });
-
-  // Force exit if shutdown takes too long
-  setTimeout(() => {
-    logger.error("Could not close connections in time, forcefully shutting down");
-    process.exit(1);
-  }, 10000);
-};
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
-process.on("SIGINT", () => shutdown("SIGINT"));
-
-process.on("uncaughtException", (err) => {
-  logger.error("🔥 UNCAUGHT EXCEPTION:", err);
-});
-
-process.on("unhandledRejection", (err) => {
-  logger.error("🌊 UNHANDLED REJECTION:", err);
-});
