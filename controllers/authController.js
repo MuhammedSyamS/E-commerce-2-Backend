@@ -5,7 +5,6 @@ const sendEmail = require('../utils/sendEmail');
 const { getWelcomeTemplate } = require('../utils/emailTemplates');
 
 // --- 1. SEND OTP ---
-// --- 1. SEND OTP ---
 exports.sendOtp = async (req, res) => {
   try {
     console.log("--- OTP REQUEST RECEIVED ---");
@@ -72,7 +71,7 @@ exports.sendOtp = async (req, res) => {
         </div>`
     });
 
-    log("Email sent successfully");
+    console.log("Email sent successfully");
     res.status(200).json({ message: "OTP SENT SUCCESSFULLY" });
   } catch (error) {
     console.error("OTP Error Stack:", error);
