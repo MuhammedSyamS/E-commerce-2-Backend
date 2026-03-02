@@ -68,6 +68,7 @@ app.use("/api/auth", authLimiter);
 // ============================
 const allowedOrigins = [
   "http://localhost:5173",
+  "http://localhost:4173",
   "https://slook-store.vercel.app",
   "https://slook.luxury",
   "https://slook.onrender.com",

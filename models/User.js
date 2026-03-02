@@ -58,6 +58,7 @@ const userSchema = new mongoose.Schema({
     state: String,
     zip: String,
     phone: String,
+    alternatePhone: String,
     isDefault: { type: Boolean, default: false }
   }],
   notifications: [{

@@ -165,8 +165,8 @@ exports.loginUser = async (req, res) => {
       return res.status(400).json({ message: "EMAIL AND PASSWORD REQUIRED" });
     }
 
-    // Find user
-    const user = await User.findOne({ email });
+    // Find user and explicitly populate wishlist to weed out deleted products
+    const user = await User.findOne({ email }).populate('wishlist');
 
     // SPECIFIC VALIDATION: No User Found
     if (!user) {
@@ -180,7 +180,14 @@ exports.loginUser = async (req, res) => {
       return res.status(401).json({ message: "INCORRECT PASSWORD. PLEASE TRY AGAIN." });
     }
 
-    // Success
+    // SUCCESS: Clean up dead wishlist items before sending back
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    // DB cleanup if dead IDs found
+    if (validWishlist.length !== user.wishlist.length) {
+      await User.updateOne({ _id: user._id }, { wishlist: validWishlist.map(p => p._id) });
+    }
+
     res.json({
       _id: user._id,
       firstName: user.firstName,
@@ -189,7 +196,7 @@ exports.loginUser = async (req, res) => {
       isAdmin: user.isAdmin, // Added
       role: user.role,       // Added
       permissions: user.permissions, // Added
-      wishlist: user.wishlist,
+      wishlist: validWishlist.map(p => p._id), // Only valid IDs
       cart: user.cart,
       referralCode: user.referralCode,
       referralEarnings: user.referralEarnings,
@@ -211,10 +218,18 @@ exports.getUserProfile = async (req, res) => {
 
     // Actually, cart logic in frontend likely expects objects if populated, or IDs.
     // Let's stick to returning what login returns, but fresh.
-    const user = await User.findById(req.user._id);
+    // Populate wishlist to detect and remove dead items
+    const user = await User.findById(req.user._id).populate('wishlist');
 
     if (!user) {
       return res.status(404).json({ message: "User not found" });
+    }
+
+    // Clean up dead wishlist items
+    const validWishlist = user.wishlist.filter(item => item !== null);
+
+    if (validWishlist.length !== user.wishlist.length) {
+      await User.updateOne({ _id: user._id }, { wishlist: validWishlist.map(p => p._id) });
     }
 
     res.json({
@@ -226,7 +241,7 @@ exports.getUserProfile = async (req, res) => {
       role: user.role,       // Added
       permissions: user.permissions, // Added
       cart: user.cart,
-      wishlist: user.wishlist,
+      wishlist: validWishlist.map(p => p._id), // Only valid IDs
       referralCode: user.referralCode,
       referralEarnings: user.referralEarnings,
       loyaltyPoints: user.loyaltyPoints,

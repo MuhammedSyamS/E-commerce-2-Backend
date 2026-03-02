@@ -159,8 +159,10 @@ const addOrderItems = async (req, res) => {
       shippingAddress: {
         address: shippingAddress.address,
         city: shippingAddress.city,
+        state: shippingAddress.state,
         postalCode: shippingAddress.postalCode || shippingAddress.zip || '000000', // Fix: support both names
-        phone: shippingAddress.phone
+        phone: shippingAddress.phone,
+        alternatePhone: shippingAddress.alternatePhone
       },
       paymentMethod,
       couponCode: req.body.couponCode,
@@ -404,18 +406,6 @@ const updateOrderStatus = async (req, res) => {
       else if (status === 'Returned') {
         if (order.orderStatus !== 'Delivered') {
           return res.status(400).json({ message: 'Cannot mark as Returned. Order is not Delivered yet.' });
-        }
-      }
-      // Strict Progression for standard flow
-      else if (newStatusLevel !== undefined) {
-        if (newStatusLevel <= currentStatusLevel && status !== order.orderStatus) {
-          // Allow tweaks
-        }
-
-        if (newStatusLevel > currentStatusLevel + 1) {
-          return res.status(400).json({
-            message: `Invalid Status Update. You cannot skip steps. Current: ${order.orderStatus}, Next allowed: ${Object.keys(statusFlow)[currentStatusLevel + 1]}`
-          });
         }
       }
 
