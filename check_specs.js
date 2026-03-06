@@ -3,7 +3,7 @@ const Product = require('./models/Product');
 
 async function checkSpecs() {
     try {
-        await mongoose.connect('mongodb://localhost:27017/HighPhaus');
+        await mongoose.connect('mongodb://localhost:27017/slook');
         console.log('Connected to MongoDB');
 
         const products = await Product.find({});

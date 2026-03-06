@@ -39,6 +39,7 @@ const sendEmail = async (options) => {
 
     try {
         if (senderEmail && senderPass) {
+            log(`[MAIL] Attempting to send ${options.type || 'verification'} email to: ${options.email} using ${senderEmail}`);
             transporter = nodemailer.createTransport({
                 service: 'gmail',
                 host: 'smtp.gmail.com',
@@ -47,6 +48,7 @@ const sendEmail = async (options) => {
                 auth: { user: senderEmail, pass: senderPass },
                 tls: { rejectUnauthorized: false }
             });
+            log(`[MAIL] Transporter created for ${senderEmail}`);
         } else {
             // Fallback to Ethereal (Dev Mode)
             const testAccount = await nodemailer.createTestAccount();

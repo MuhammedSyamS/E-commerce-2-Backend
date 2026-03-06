@@ -11,7 +11,8 @@ const {
     toggleLike,
     deleteLook,
     getAllLooksAdmin,
-    updateLookStatus
+    updateLookStatus,
+    updateLook
 } = require('../controllers/lookController');
 
 // Multer Storage Configuration
@@ -53,6 +54,7 @@ router.get('/my', protect, getMyLooks);
 // Admin Routes
 router.get('/admin', protect, hasPermission('manage_looks'), getAllLooksAdmin);
 router.patch('/:id/status', protect, hasPermission('manage_looks'), updateLookStatus);
+router.put('/:id', protect, hasPermission('manage_looks'), updateLook);
 
 router.post('/:id/like', protect, toggleLike);
 

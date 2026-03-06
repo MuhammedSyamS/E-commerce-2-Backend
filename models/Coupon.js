@@ -14,7 +14,8 @@ const couponSchema = new mongoose.Schema({
     eligibleProducts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Product' }],
     eligibleCategories: [{ type: String }],
     usageLimit: { type: Number, default: null }, // Max global uses
-    perUserLimit: { type: Number, default: null } // Max uses per user
+    perUserLimit: { type: Number, default: null }, // Max uses per user
+    specificUsers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Coupon', couponSchema);

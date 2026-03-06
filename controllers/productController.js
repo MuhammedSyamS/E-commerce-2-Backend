@@ -124,6 +124,42 @@ exports.getProducts = async (req, res) => {
   }
 };
 
+exports.getHomeProducts = async (req, res) => {
+  try {
+    // Parallel fetch with strict limits and Lean queries
+    let [trending, newArrivals, bestSellers] = await Promise.all([
+      Product.find({})
+        .sort({ viewCount: -1 })
+        .limit(10)
+        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
+        .lean(),
+      Product.find({ isNewArrival: true })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
+        .lean(),
+      Product.find({ isBestSeller: true })
+        .sort({ createdAt: -1 })
+        .limit(10)
+        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
+        .lean()
+    ]);
+
+    // FALLBACK: If specific sections are empty, fill with recent products to avoid empty home page
+    if (newArrivals.length === 0 && trending.length > 0) {
+      newArrivals = trending.slice(0, 5);
+    }
+    if (bestSellers.length === 0 && trending.length > 0) {
+      bestSellers = [...trending].reverse().slice(0, 5);
+    }
+
+    res.json({ trending, newArrivals, bestSellers });
+  } catch (error) {
+    console.error("Home Data Fetch Error:", error);
+    res.status(500).json({ message: "Failed to load home data" });
+  }
+};
+
 // @desc    Fetch single product by slug OR ID
 // @route   GET /api/products/:slug
 // @access  Public

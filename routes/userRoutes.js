@@ -5,6 +5,7 @@ const { protect, admin, hasPermission } = require('../middleware/authMiddleware'
 
 // All wishlist actions require being logged in
 router.post('/wishlist', protect, toggleWishlist);
+router.post('/wishlist/bulk', protect, require('../controllers/userController').bulkWishlist);
 router.get('/wishlist', protect, require('../controllers/userController').getWishlist);
 
 // Address Book

@@ -58,6 +58,16 @@ const productSchema = new mongoose.Schema({
   viewCount: { type: Number, default: 0 }
 }, { timestamps: true });
 
+// INDEXES FOR PERFORMANCE
+productSchema.index({ isNewArrival: 1 });
+productSchema.index({ isBestSeller: 1 });
+productSchema.index({ category: 1 });
+productSchema.index({ subcategory: 1 });
+productSchema.index({ viewCount: -1 });
+productSchema.index({ createdAt: -1 });
+productSchema.index({ price: 1 });
+productSchema.index({ name: 'text', tags: 'text' }); // For Keyword Search
+
 // ENFORCE STOCK CONSISTENCY
 // ENFORCE STOCK CONSISTENCY
 productSchema.pre('save', async function () {

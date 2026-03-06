@@ -5,7 +5,7 @@ const Coupon = require('../models/Coupon');
 // @access  Private/Admin
 const createCoupon = async (req, res) => {
     try {
-        const { code, discountType, discountAmount, minPurchase, expiryDate } = req.body;
+        const { code, discountType, discountAmount, minPurchase, expiryDate, isFirstOrderOnly, eligibleProducts, eligibleCategories, usageLimit, perUserLimit, specificUsers } = req.body;
 
         // Check if exists
         const existing = await Coupon.findOne({ code: code.toUpperCase() });
@@ -18,13 +18,52 @@ const createCoupon = async (req, res) => {
             discountType,
             discountAmount,
             minPurchase,
-            expiryDate
+            expiryDate,
+            isFirstOrderOnly,
+            eligibleProducts,
+            eligibleCategories,
+            usageLimit,
+            perUserLimit,
+            specificUsers
         });
 
         const createdCoupon = await coupon.save();
         res.status(201).json(createdCoupon);
     } catch (error) {
         res.status(500).json({ message: 'Failed to create coupon', error: error.message });
+    }
+};
+
+// @desc    Update a Coupon
+// @route   PUT /api/coupons/:id
+// @access  Private/Admin
+const updateCoupon = async (req, res) => {
+    try {
+        const { code, discountType, discountAmount, minPurchase, expiryDate, isFirstOrderOnly, eligibleProducts, eligibleCategories, usageLimit, perUserLimit, specificUsers, isActive } = req.body;
+
+        const coupon = await Coupon.findById(req.params.id);
+
+        if (coupon) {
+            coupon.code = code || coupon.code;
+            coupon.discountType = discountType || coupon.discountType;
+            coupon.discountAmount = discountAmount !== undefined ? discountAmount : coupon.discountAmount;
+            coupon.minPurchase = minPurchase !== undefined ? minPurchase : coupon.minPurchase;
+            coupon.expiryDate = expiryDate || coupon.expiryDate;
+            coupon.isFirstOrderOnly = isFirstOrderOnly !== undefined ? isFirstOrderOnly : coupon.isFirstOrderOnly;
+            coupon.eligibleProducts = eligibleProducts || coupon.eligibleProducts;
+            coupon.eligibleCategories = eligibleCategories || coupon.eligibleCategories;
+            coupon.usageLimit = usageLimit !== undefined ? usageLimit : coupon.usageLimit;
+            coupon.perUserLimit = perUserLimit !== undefined ? perUserLimit : coupon.perUserLimit;
+            coupon.specificUsers = specificUsers || coupon.specificUsers;
+            coupon.isActive = isActive !== undefined ? isActive : coupon.isActive;
+
+            const updatedCoupon = await coupon.save();
+            res.json(updatedCoupon);
+        } else {
+            res.status(404).json({ message: 'Coupon not found' });
+        }
+    } catch (error) {
+        res.status(500).json({ message: 'Failed to update coupon', error: error.message });
     }
 };
 
@@ -52,6 +91,17 @@ const validateCoupon = async (req, res) => {
         if (cartTotal < coupon.minPurchase) {
             return res.status(400).json({ message: `Minimum purchase of ₹${coupon.minPurchase} required` });
         }
+
+        // --- NEW: USER SPECIFIC CHECK ---
+        if (coupon.specificUsers && coupon.specificUsers.length > 0) {
+            if (!req.user) {
+                return res.status(401).json({ message: 'Please login to use this coupon' });
+            }
+            if (!coupon.specificUsers.includes(req.user._id.toString())) {
+                return res.status(403).json({ message: 'This coupon is not valid for your account' });
+            }
+        }
+        // --------------------------------
 
         // Calculate Discount
         let calculatedDiscount = 0;
@@ -105,4 +155,4 @@ const deleteCoupon = async (req, res) => {
     }
 };
 
-module.exports = { createCoupon, validateCoupon, getAllCoupons, deleteCoupon };
+module.exports = { createCoupon, updateCoupon, validateCoupon, getAllCoupons, deleteCoupon };

@@ -20,7 +20,7 @@ const createLook = async (req, res) => {
             image: `/uploads/${req.file.filename}`,
             caption,
             products: parsedProducts,
-            status: 'approved' // Auto-approve for immediate display
+            status: 'pending' // Requires admin approval before display
         });
 
         const createdLook = await look.save();
@@ -149,6 +149,25 @@ const updateLookStatus = async (req, res) => {
     }
 };
 
+// @desc    Update a look (Admin edit caption)
+// @route   PUT /api/looks/:id
+// @access  Private/Admin
+const updateLook = async (req, res) => {
+    try {
+        const { caption } = req.body;
+        const look = await Look.findById(req.params.id);
+        if (!look) {
+            return res.status(404).json({ message: 'Look not found' });
+        }
+
+        if (caption !== undefined) look.caption = caption;
+        const updated = await look.save();
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ message: 'Server Error', error: error.message });
+    }
+};
+
 module.exports = {
     createLook,
     getAllLooks,
@@ -156,6 +175,7 @@ module.exports = {
     toggleLike,
     deleteLook,
     getAllLooksAdmin,
-    updateLookStatus
+    updateLookStatus,
+    updateLook
 };
 

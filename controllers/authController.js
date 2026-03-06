@@ -27,7 +27,8 @@ exports.sendOtp = async (req, res) => {
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`Generated Code for ${emailLower}: ${code}`);
+    console.log(`[AUTH] Email for OTP: ${emailLower}`);
+    console.log(`[AUTH] Generated Code: ${code}`);
 
     // Save or Update OTP in DB
     try {
@@ -36,17 +37,18 @@ exports.sendOtp = async (req, res) => {
         { code, createdAt: Date.now() },
         { upsert: true, new: true }
       );
-      console.log("OTP Saved to DB");
+      console.log(`[AUTH] [SUCCESS] OTP saved to DB for ${emailLower}`);
     } catch (dbError) {
-      console.log(`DB Error: ${dbError.message}`);
+      console.error(`[AUTH] [DB ERROR] ${dbError.message}`);
       throw dbError;
     }
 
     // Send Mail using Central Utility
-    await sendEmail({
-      email: emailLower,
-      subject: "Your Verification Code to SLOOK",
-      html: `
+    try {
+      await sendEmail({
+        email: emailLower,
+        subject: "Your Verification Code to SLOOK",
+        html: `
         <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
             <div style="text-align: center; padding: 40px 0; border-bottom: 1px solid #f5f5f5; background: #fff;">
                 <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -1px; margin: 0; text-transform: uppercase;">SLOOK</h1>
@@ -69,10 +71,16 @@ exports.sendOtp = async (req, res) => {
                 <p style="font-size: 11px; color: #ccc; margin-top: 8px;">If you didn't request this email, you can safely ignore it.</p>
             </div>
         </div>`
-    });
-
-    console.log("Email sent successfully");
-    res.status(200).json({ message: "OTP SENT SUCCESSFULLY" });
+      });
+      console.log(`[AUTH] [SUCCESS] Email sent to ${emailLower}`);
+      res.status(200).json({ message: "OTP SENT SUCCESSFULLY" });
+    } catch (emailError) {
+      console.error(`[AUTH] [MAIL ERROR] ${emailError.message}`);
+      return res.status(500).json({ 
+        message: "COULD NOT SEND EMAIL. PLEASE CHECK YOUR EMAIL ADDRESS OR TRY LATER.",
+        error: emailError.message 
+      });
+    }
   } catch (error) {
     console.error("OTP Error Stack:", error);
     if (res.headersSent) return;
@@ -83,11 +91,11 @@ exports.sendOtp = async (req, res) => {
 // --- 2. REGISTER USER ---
 exports.registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, password, code } = req.body;
-    const email = req.body.email?.toLowerCase().trim();
+    const { firstName, lastName, email: rawEmail, password, code, phone } = req.body;
+    const email = rawEmail?.toLowerCase().trim();
 
     // Field Validation
-    if (!firstName || !lastName || !email || !password || !code) {
+    if (!firstName || !lastName || !email || !password || !code || !phone) {
       return res.status(400).json({ message: "PLEASE FILL ALL FIELDS" });
     }
 
@@ -112,6 +120,7 @@ exports.registerUser = async (req, res) => {
       firstName,
       lastName,
       email,
+      phone,
       password, // Plain text sent here, hashed by Schema
       referralCode: Math.random().toString(36).substring(2, 8).toUpperCase()
     });
@@ -170,18 +179,21 @@ exports.loginUser = async (req, res) => {
 
     // SPECIFIC VALIDATION: No User Found
     if (!user) {
+      console.warn(`[AUTH] [LOGIN FAIL] User not found: ${email}`);
       return res.status(404).json({ message: "NO ACCOUNT FOUND WITH THIS EMAIL" });
     }
 
     // SPECIFIC VALIDATION: Incorrect Password
-    // matchesPassword uses bcrypt.compare internally via your User model
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
+      console.warn(`[AUTH] [LOGIN FAIL] Invalid password for: ${email}`);
       return res.status(401).json({ message: "INCORRECT PASSWORD. PLEASE TRY AGAIN." });
     }
 
+    console.log(`[AUTH] [LOGIN SUCCESS] User authenticated: ${email}`);
+
     // SUCCESS: Clean up dead wishlist items before sending back
-    const validWishlist = user.wishlist.filter(item => item !== null);
+    const validWishlist = (user.wishlist || []).filter(item => item !== null);
 
     // DB cleanup if dead IDs found
     if (validWishlist.length !== user.wishlist.length) {
@@ -192,12 +204,9 @@ exports.loginUser = async (req, res) => {
       _id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
-      email: user.email,
-      isAdmin: user.isAdmin, // Added
-      role: user.role,       // Added
-      permissions: user.permissions, // Added
       wishlist: validWishlist.map(p => p._id), // Only valid IDs
       cart: user.cart,
+      phone: user.phone,
       referralCode: user.referralCode,
       referralEarnings: user.referralEarnings,
       loyaltyPoints: user.loyaltyPoints,
@@ -236,11 +245,8 @@ exports.getUserProfile = async (req, res) => {
       _id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      role: user.role,       // Added
-      permissions: user.permissions, // Added
       cart: user.cart,
+      phone: user.phone,
       wishlist: validWishlist.map(p => p._id), // Only valid IDs
       referralCode: user.referralCode,
       referralEarnings: user.referralEarnings,

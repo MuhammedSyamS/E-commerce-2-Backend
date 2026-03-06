@@ -35,6 +35,36 @@ exports.toggleWishlist = async (req, res) => {
   }
 };
 
+// @desc    Bulk add to wishlist (Guest Sync)
+// @route   POST /api/users/wishlist/bulk
+// @access  Private
+exports.bulkWishlist = async (req, res) => {
+  try {
+    const { productIds } = req.body;
+    if (!productIds || !Array.isArray(productIds)) return res.status(400).json({ message: "Invalid product IDs" });
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Merge unique IDs
+    const existingIds = user.wishlist.map(id => id.toString());
+    // Filter out potential non-ObjectId strings or empty values
+    const validIds = productIds.filter(id => id && id.length === 24);
+    const newIds = validIds.filter(id => !existingIds.includes(id));
+
+    if (newIds.length > 0) {
+      user.wishlist.push(...newIds);
+      await user.save();
+    }
+
+    await user.populate('wishlist');
+    res.status(200).json(user.wishlist);
+  } catch (error) {
+    console.error("Bulk Wishlist Error:", error);
+    res.status(500).json({ message: "Failed to sync wishlist" });
+  }
+};
+
 // @desc    Get user wishlist
 // @route   GET /api/users/wishlist
 // @access  Private
@@ -111,19 +141,13 @@ exports.googleLogin = async (req, res) => {
       return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
     };
 
-    res.json({
-      _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      isAdmin: user.isAdmin,
-      role: user.role,
-      token: generateToken(user._id),
-      avatar: user.avatar,
-      permissions: user.permissions,
-      cart: user.cart,
-      wishlist: user.wishlist
-    });
+    const userData = user.toObject();
+    delete userData.password;
+    delete userData.otp;
+    delete userData.otpExpires;
+    userData.token = generateToken(user._id);
+
+    res.json(userData);
 
   } catch (error) {
     console.error("Google Login Error:", error);
@@ -242,22 +266,14 @@ exports.updateProfile = async (req, res) => {
 
     const updatedUser = await user.save();
 
-    res.json({
-      _id: updatedUser._id,
-      firstName: updatedUser.firstName,
-      lastName: updatedUser.lastName,
-      email: updatedUser.email,
-      phone: updatedUser.phone,
-      isAdmin: updatedUser.isAdmin,
-      role: updatedUser.role,
-      token: req.headers.authorization.split(' ')[1],
-      addresses: updatedUser.addresses,
-      wishlist: updatedUser.wishlist,
-      avatar: updatedUser.avatar,
-      loyaltyPoints: updatedUser.loyaltyPoints,
-      membershipTier: updatedUser.membershipTier,
-      permissions: updatedUser.permissions
-    });
+    const userData = updatedUser.toObject();
+    delete userData.password;
+    delete userData.otp;
+    delete userData.otpExpires;
+
+    userData.token = req.headers.authorization.split(' ')[1];
+
+    res.json(userData);
   } catch (error) {
     console.error("UPDATE ERROR:", error);
     res.status(500).json({ message: error.message || "Update failed" });
@@ -267,65 +283,110 @@ exports.updateProfile = async (req, res) => {
 // @desc    Get user profile (Sync/Fresh Data)
 // @route   GET /api/users/profile
 // @access  Private
+// --- INTERNAL HELPER: SYNC/HEAL LOYALTY DATA ---
+const syncUserLoyalty = async (userId, forceSync = false) => {
+  try {
+    const mongoose = require('mongoose');
+    const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+    const Order = require('../models/Order');
+    const User = require('../models/User');
+
+    const oid = typeof userId === 'string' ? new mongoose.Types.ObjectId(userId) : userId;
+
+    // 1. Check throttle: Only sync if forced or 5 minutes past last sync
+    const user = await User.findById(oid).select('loyaltyPoints totalSpent membershipTier lastLoyaltySync email');
+    if (!user) return null;
+
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    if (!forceSync && user.lastLoyaltySync && user.lastLoyaltySync > fiveMinutesAgo) {
+      return { loyaltyPoints: user.loyaltyPoints, totalSpent: user.totalSpent, membershipTier: user.membershipTier };
+    }
+
+    // 2. Recalculate true balance from transactions
+    const allTx = await LoyaltyTransaction.find({ user: oid }).sort({ createdAt: -1 }).lean();
+    const trueBalance = allTx.reduce((sum, tx) => {
+      if (['earn', 'bonus', 'referral', 'refund'].includes(tx.type)) return sum + (tx.amount || 0);
+      if (['spend', 'expire'].includes(tx.type)) return sum - (tx.amount || 0);
+      return sum;
+    }, 0);
+    const correctedBalance = Math.max(0, trueBalance);
+
+    // 3. Recalculate total spent from completed orders
+    const completedOrders = await Order.find({
+      user: oid,
+      orderStatus: { $nin: ['Cancelled', 'Returned', 'Refunded', 'Failed'] },
+      $or: [{ isPaid: true }, { paymentMethod: 'cod' }]
+    }).select('totalPrice').lean();
+    const trueTotalSpent = completedOrders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+
+    // 4. Determine Tier
+    let newTier = 'Bronze';
+    if (trueTotalSpent >= 50000) newTier = 'Platinum';
+    else if (trueTotalSpent >= 20000) newTier = 'Gold';
+    else if (trueTotalSpent >= 5000) newTier = 'Silver';
+
+    // 5. Update if necessary
+    const needsUpdate = user.loyaltyPoints !== correctedBalance ||
+      user.totalSpent !== trueTotalSpent ||
+      user.membershipTier !== newTier;
+
+    const updatePayload = { lastLoyaltySync: new Date() };
+    if (needsUpdate) {
+      console.log(`[REPAIR] User ${user.email}: Points ${user.loyaltyPoints}->${correctedBalance}, Tier ${user.membershipTier}->${newTier}`);
+      updatePayload.loyaltyPoints = correctedBalance;
+      updatePayload.totalSpent = trueTotalSpent;
+      updatePayload.membershipTier = newTier;
+    }
+
+    await User.updateOne({ _id: oid }, { $set: updatePayload });
+
+    return {
+      loyaltyPoints: needsUpdate ? correctedBalance : user.loyaltyPoints,
+      totalSpent: needsUpdate ? trueTotalSpent : user.totalSpent,
+      membershipTier: needsUpdate ? newTier : user.membershipTier
+    };
+  } catch (err) {
+    console.error("syncUserLoyalty failed:", err);
+    return null;
+  }
+};
+
+// @desc    Get current user profile
+// @route   GET /api/users/profile
+// @access  Private
 exports.getUserProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user._id).populate('wishlist');
+    // SYNC LOYALTY (Throttled internally)
+    await syncUserLoyalty(req.user._id);
+
+    // Re-fetch populated wishlist - Optimized selection
+    const user = await User.findById(req.user._id)
+      .populate({ path: 'wishlist', select: 'name slug price image' });
+
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 1. SELF-HEALING CART: Remove stale items
+    // 1. SELF-HEALING CART/WISHLIST (Targeted Updates)
     if (user.cart && user.cart.length > 0) {
       const Product = require('../models/Product');
       const validCart = [];
       let cartModified = false;
+      // Parallelize product existence check for speed
+      const existenceChecks = await Promise.all(user.cart.map(item => Product.exists({ _id: item.product })));
 
-      for (const item of user.cart) {
-        const productExists = await Product.exists({ _id: item.product });
-        if (productExists) {
-          validCart.push(item);
-        } else {
-          console.log(`Removing stale cart item: ${item.name}`);
-          cartModified = true;
-        }
-      }
+      user.cart.forEach((item, idx) => {
+        if (existenceChecks[idx]) validCart.push(item);
+        else cartModified = true;
+      });
 
-      if (cartModified) {
-        user.cart = validCart;
-        await user.save();
-      }
+      if (cartModified) await User.updateOne({ _id: user._id }, { $set: { cart: validCart } });
     }
 
-    // 2. SELF-HEALING WISHLIST: Remove stale items (Deleted Products)
-    // user.wishlist is already populated
-    const originalWishlistLength = user.wishlist.length;
-    const validWishlist = user.wishlist.filter(item => item !== null);
+    const userData = user.toObject();
+    delete userData.password;
+    delete userData.otp;
+    delete userData.otpExpires;
 
-    if (validWishlist.length !== originalWishlistLength) {
-      console.log(`[FIX] Removing ${originalWishlistLength - validWishlist.length} stale items from wishlist for user ${user.email}`);
-
-      // Use direct update to ensure DB consistency without population issues
-      await User.updateOne(
-        { _id: user._id },
-        { wishlist: validWishlist.map(p => p._id) }
-      );
-
-      console.log(`[FIX] Wishlist cleaned in DB.`);
-    }
-
-    res.json({
-      _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      phone: user.phone,
-      isAdmin: user.isAdmin,
-      role: user.role,
-      permissions: user.permissions,
-      addresses: user.addresses,
-      wishlist: validWishlist, // Return populated & cleaned list
-      cart: user.cart,
-      notifications: user.notifications,
-      savedCards: user.savedCards
-    });
+    res.json(userData);
   } catch (error) {
     console.error("Profile Fetch Error:", error);
     res.status(500).json({ message: "Fetch failed" });
@@ -434,7 +495,8 @@ exports.getUsers = async (req, res) => {
       $or: [
         { firstName: { $regex: search, $options: 'i' } },
         { lastName: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
+        { email: { $regex: search, $options: 'i' } },
+        { phone: { $regex: search, $options: 'i' } }
       ]
     } : {};
 
@@ -781,12 +843,49 @@ exports.verifyOTP = async (req, res) => {
 exports.getLoyaltyHistory = async (req, res) => {
   try {
     const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-    const history = await LoyaltyTransaction.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(50);
-    res.json(history);
+    const User = require('../models/User');
+
+    // Use the optimized sync helper
+    const healed = await syncUserLoyalty(req.user._id);
+    if (!healed) return res.status(404).json({ message: 'User not found' });
+
+    const allTx = await LoyaltyTransaction.find({ user: req.user._id }).sort({ createdAt: -1 });
+    const correctedBalance = healed.loyaltyPoints;
+    const trueTotalSpent = healed.totalSpent;
+
+    // --- STEP 4: AUTO-EXPIRY CHECK (only if there's a real positive balance) ---
+    if (correctedBalance > 0) {
+      const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const lastEarnTx = allTx.find(tx => ['earn', 'bonus', 'referral'].includes(tx.type));
+
+      if (lastEarnTx && new Date(lastEarnTx.createdAt) < ninetyDaysAgo) {
+        const recentExpiry = allTx.find(tx => tx.type === 'expire' && new Date(tx.createdAt) >= ninetyDaysAgo);
+        if (!recentExpiry) {
+          await LoyaltyTransaction.create({
+            user: req.user._id,
+            type: 'expire',
+            amount: correctedBalance,
+            description: `${correctedBalance} coins expired due to 90 days of inactivity`,
+            referenceModel: 'User',
+            referenceId: req.user._id,
+            isExpired: true
+          });
+          await User.updateOne({ _id: req.user._id }, { $set: { loyaltyPoints: 0 } });
+          // Re-fetch fresh history after expiry
+          const freshTx = await LoyaltyTransaction.find({ user: req.user._id }).sort({ createdAt: -1 }).limit(50);
+          return res.json({ transactions: freshTx, loyaltyPoints: 0, totalSpent: trueTotalSpent });
+        }
+      }
+    }
+
+    // Return history + corrected balance so frontend can use it directly
+    const history = allTx.slice(0, 50);
+    res.json({ transactions: history, loyaltyPoints: correctedBalance, totalSpent: trueTotalSpent });
+
   } catch (error) {
-    console.error("Loyalty History Error:", error);
-    res.status(500).json({ message: "Failed to fetch loyalty history" });
+    console.error('Loyalty History Error:', error);
+    res.status(500).json({ message: 'Failed to fetch loyalty history' });
   }
 };
+
+

@@ -1,6 +1,6 @@
 const mongoose = require('mongoose');
 
-const MONGO_URI = "mongodb+srv://shamsaifudheen_db_user:TIPgwZykPJNVQ8Ru@ecommerce.bbxai9g.mongodb.net/highphaus?retryWrites=true&w=majority";
+const MONGO_URI = "mongodb+srv://shamsaifudheen_db_user:TIPgwZykPJNVQ8Ru@ecommerce.bbxai9g.mongodb.net/slook?retryWrites=true&w=majority";
 
 const productSchema = new mongoose.Schema({
     name: { type: String, required: true },

@@ -4,7 +4,7 @@ const bcrypt = require('bcryptjs');
 const userSchema = new mongoose.Schema({
   firstName: { type: String, required: true },
   lastName: { type: String, required: true },
-  email: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
   phone: { type: String, required: false },
   password: { type: String, required: true },
   role: { type: String, enum: ['customer', 'admin', 'manager', 'delivery', 'client_support_executive', 'digital_marketing_executive'], default: 'customer' }, // NEW: Role Management
@@ -13,6 +13,7 @@ const userSchema = new mongoose.Schema({
   isSuperAdmin: { type: Boolean, default: false }, // Full Access
   loyaltyPoints: { type: Number, default: 0 }, // NEW: Loyalty Program
   totalSpent: { type: Number, default: 0 }, // NEW: Lifecycle Tracking
+  lastLoyaltySync: { type: Date }, // NEW: Performance Optimization (Throttling)
   membershipTier: {
     type: String,
     enum: ['Bronze', 'Silver', 'Gold', 'Platinum'],

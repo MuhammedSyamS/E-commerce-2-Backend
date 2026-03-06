@@ -30,6 +30,14 @@ const addOrderItems = async (req, res) => {
       const coupon = await Coupon.findOne({ code: req.body.couponCode.toUpperCase() });
 
       if (coupon && coupon.isActive && new Date(coupon.expiryDate) > Date.now()) {
+        // --- NEW: USER SPECIFIC CHECK ---
+        if (coupon.specificUsers && coupon.specificUsers.length > 0) {
+          if (!coupon.specificUsers.includes(req.user._id.toString())) {
+            return res.status(403).json({ message: 'This coupon is not valid for your account' });
+          }
+        }
+        // --------------------------------
+
         // Check Usage Limit
         if (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit) {
           // Check Min Purchase (Use FE passed total or verify backend calc?)
@@ -337,18 +345,46 @@ const getAllOrders = async (req, res) => {
   try {
     const pageSize = Number(req.query.pageSize) || 20;
     const page = Number(req.query.page) || 1;
+    const { keyword, status, isPaid, paymentMethod } = req.query;
 
-    console.log(`ADMIN ORDERS: Fetching all orders (Page: ${page}, Limit: ${pageSize})...`);
+    let query = {};
 
-    const count = await Order.countDocuments({});
-    const orders = await Order.find({})
-      .populate('user', 'id firstName lastName email')
-      .select('_id orderStatus isPaid paidAt isDispatched dispatchedAt shippedAt isDelivered deliveredAt processingAt confirmedAt returnStatus returnRequestedAt returnedAt totalPrice createdAt orderItems')
+    if (keyword) {
+      const isObjectId = keyword.match(/^[0-9a-fA-F]{24}$/);
+      if (isObjectId) {
+        query._id = keyword;
+      } else {
+        const User = require('../models/User');
+        const users = await User.find({
+          $or: [
+            { email: { $regex: keyword, $options: 'i' } },
+            { firstName: { $regex: keyword, $options: 'i' } },
+            { lastName: { $regex: keyword, $options: 'i' } }
+          ]
+        }).select('_id');
+        const userIds = users.map(u => u._id);
+
+        query.$or = [
+          { user: { $in: userIds } },
+          { _id: { $regex: keyword, $options: 'i' } }
+        ];
+      }
+    }
+
+    if (status && status !== 'all') query.orderStatus = status;
+    if (isPaid !== undefined && isPaid !== 'all') query.isPaid = isPaid === 'true';
+    if (paymentMethod && paymentMethod !== 'all') query.paymentMethod = paymentMethod;
+
+    console.log(`ADMIN ORDERS: Fetching with query:`, JSON.stringify(query));
+
+    const count = await Order.countDocuments(query);
+    const orders = await Order.find(query)
+      .populate('user', 'id firstName lastName email phone')
+      .select('_id orderStatus isPaid paidAt isDispatched dispatchedAt shippedAt isDelivered deliveredAt processingAt confirmedAt returnStatus returnRequestedAt returnedAt totalPrice createdAt orderItems paymentMethod shippingAddress billingAddress paymentResult deliveryPartner trackingId')
       .sort({ createdAt: -1 })
       .limit(pageSize)
       .skip(pageSize * (page - 1));
 
-    console.log(`ADMIN ORDERS: Found ${orders.length} orders on this page.`);
     res.json({
       orders,
       page,
@@ -390,7 +426,8 @@ const updateOrderStatus = async (req, res) => {
         'Confirmed': 2,
         'Dispatched': 3,
         'Shipped': 4,
-        'Delivered': 5
+        'Delivered': 5,
+        'Exchanged': 6
       };
 
       const currentStatusLevel = statusFlow[order.orderStatus] || 0;
@@ -418,6 +455,8 @@ const updateOrderStatus = async (req, res) => {
         order.confirmedAt = Date.now();
       } else if (status === 'Dispatched') {
         order.dispatchedAt = Date.now();
+        if (req.body.deliveryPartner) order.deliveryPartner = req.body.deliveryPartner;
+        if (req.body.trackingId) order.trackingId = req.body.trackingId;
       } else if (status === 'Shipped') {
         order.isDispatched = true;
         order.shippedAt = Date.now();
@@ -478,6 +517,8 @@ const updateOrderStatus = async (req, res) => {
         order.returnRequestedAt = Date.now();
       } else if (status === 'Returned') {
         order.returnedAt = Date.now();
+      } else if (status === 'Exchanged') {
+        order.exchangedAt = Date.now(); // Add to model if needed, or just set status
       } else if (['Pending', 'Processing', 'Confirmed', 'Dispatched'].includes(status)) {
         // Reset booleans if reverting (Admin might correct a mistake)
         order.isDispatched = false;
@@ -501,6 +542,7 @@ const updateOrderStatus = async (req, res) => {
         'Dispatched': { title: 'Order Dispatched', body: 'Your order is ready for dispatch.' },
         'Shipped': { title: 'Order In Transit', body: `Your order #${order._id.toString().slice(-6)} has been shipped.` },
         'Delivered': { title: 'Order Delivered', body: 'Your package has arrived! Enjoy your purchase.' },
+        'Exchanged': { title: 'Exchange Successful', body: 'Your exchange process is complete.' }, // NEW
         'Refunded': { title: 'Refund Processed', body: 'Your refund request has been approved.' },
         'Cancelled': { title: 'Order Cancelled', body: 'Your order has been cancelled.' }
       };
@@ -844,7 +886,47 @@ const getAdminStats = async (req, res) => {
       { $limit: 10 }
     ]);
 
-    // 16. Cart Statistics (New)
+    // 16. Financial Summary (Settled, Pending, Refunded)
+    const treasuryStats = await Order.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalRevenue: {
+            $sum: { $cond: [{ $eq: ["$isPaid", true] }, "$totalPrice", 0] }
+          },
+          pendingRevenue: {
+            $sum: {
+              $cond: [
+                { $and: [{ $eq: ["$isPaid", false] }, { $ne: ["$orderStatus", "Cancelled"] }] },
+                "$totalPrice",
+                0
+              ]
+            }
+          },
+          refundedAmount: {
+            $sum: { $cond: [{ $in: ["$orderStatus", ["Returned", "Refunded"]] }, "$totalPrice", 0] }
+          },
+          failedAmount: {
+            $sum: { $cond: [{ $in: ["$orderStatus", ["Failed", "Cancelled"]] }, "$totalPrice", 0] }
+          }
+        }
+      }
+    ]);
+
+    const financial = treasuryStats[0] || {
+      totalRevenue: 0,
+      pendingRevenue: 0,
+      refundedAmount: 0,
+      failedAmount: 0
+    };
+
+    const totalRevenue = financial.totalRevenue;
+    const pendingRevenue = financial.pendingRevenue;
+    const refundedAmount = financial.refundedAmount;
+    const failedAmount = financial.failedAmount;
+    const netRevenue = totalRevenue - refundedAmount;
+
+    // 17. Cart Statistics (New)
     const activeCartsCount = await require('../models/User').countDocuments({
       "cart.0": { $exists: true } // Users with at least one item in cart
     });
@@ -1028,7 +1110,12 @@ const getAdminStats = async (req, res) => {
       recentReviews,
       topCartProducts,
       refundRequests,
-      failedPayments
+      failedPayments,
+      totalRevenue,
+      netRevenue,
+      pendingRevenue,
+      refundedAmount,
+      failedAmount
     });
 
   } catch (error) {
@@ -1049,23 +1136,25 @@ const trackOrder = async (req, res) => {
     let targetOrderId = orderId;
     let isReturnLookup = false;
 
+    const mongoose = require('mongoose');
+
     // Detect if the ID is a Return/Exchange ID
     // 1. Check for RTN- or EXC- prefixes
     if (orderId.toString().toUpperCase().startsWith('RTN-') || orderId.toString().toUpperCase().startsWith('EXC-')) {
       const systemIdSuffix = orderId.split('-')[1];
       if (systemIdSuffix) {
         // Find if it's a full 24-char ID or a short suffix
-        if (systemIdSuffix.length === 24) {
+        if (mongoose.Types.ObjectId.isValid(systemIdSuffix)) {
           const match = await Return.findById(systemIdSuffix).populate('order');
-          if (match) {
+          if (match && match.order) {
             targetOrderId = match.order._id;
             isReturnLookup = true;
           }
         } else {
-          // Fallback to legacy suffix lookup (MNC-grade: we should ideally just use full ID or indexed short ID)
+          // Fallback to legacy suffix lookup
           const returns = await Return.find().populate('order');
           const match = returns.find(r => r._id.toString().toUpperCase().endsWith(systemIdSuffix.toUpperCase()));
-          if (match) {
+          if (match && match.order) {
             targetOrderId = match.order._id;
             isReturnLookup = true;
           }
@@ -1073,12 +1162,17 @@ const trackOrder = async (req, res) => {
       }
     }
     // 2. Check for 24-character hex ID (System Return ID or Order ID)
-    else if (orderId.length === 24 && /^[0-9a-fA-F]{24}$/.test(orderId)) {
+    else if (mongoose.Types.ObjectId.isValid(orderId)) {
       const possibleReturn = await Return.findById(orderId).populate('order');
-      if (possibleReturn) {
+      if (possibleReturn && possibleReturn.order) {
         targetOrderId = possibleReturn.order._id;
         isReturnLookup = true;
       }
+    }
+
+    // Final Validation: Ensure targetOrderId is valid for Order.findById
+    if (!mongoose.Types.ObjectId.isValid(targetOrderId)) {
+      return res.status(400).json({ message: "Invalid ID format provided." });
     }
 
     // Find Order
@@ -1248,7 +1342,32 @@ const lookupOrder = async (req, res) => {
       return res.status(400).json({ message: "Please provide both Order ID and Email." });
     }
 
-    const order = await Order.findById(orderId).populate('user', 'email');
+    let targetOrderId = orderId;
+    const mongoose = require('mongoose');
+
+    // Proactive ID translation (similar to trackOrder)
+    if (orderId.toString().toUpperCase().startsWith('RTN-') || orderId.toString().toUpperCase().startsWith('EXC-')) {
+      const systemIdSuffix = orderId.split('-')[1];
+      if (systemIdSuffix) {
+        if (mongoose.Types.ObjectId.isValid(systemIdSuffix)) {
+          const match = await Return.findById(systemIdSuffix).populate('order');
+          if (match && match.order) targetOrderId = match.order._id;
+        } else {
+          const returns = await Return.find().populate('order');
+          const match = returns.find(r => r._id.toString().toUpperCase().endsWith(systemIdSuffix.toUpperCase()));
+          if (match && match.order) targetOrderId = match.order._id;
+        }
+      }
+    } else if (mongoose.Types.ObjectId.isValid(orderId)) {
+      const possibleReturn = await Return.findById(orderId).populate('order');
+      if (possibleReturn && possibleReturn.order) targetOrderId = possibleReturn.order._id;
+    }
+
+    if (!mongoose.Types.ObjectId.isValid(targetOrderId)) {
+      return res.status(400).json({ message: "Invalid ID format provided." });
+    }
+
+    const order = await Order.findById(targetOrderId).populate('user', 'email');
 
     if (!order) {
       return res.status(404).json({ message: "Order not found with this ID." });
@@ -1315,20 +1434,42 @@ const awardOrderCoins = async (orderId) => {
     const user = await User.findById(order.user);
     if (!user) return;
 
-    // --- DIFFERENTIAL EARNING & TIER MULTIPLIERS ---
-    // Rules: Online = 1 coin / ₹100, COD = 1 coin / ₹500
-    // Multipliers: Bronze=1x, Silver=1.2x, Gold=1.5x, Platinum=2x
+    // --- REVISED COIN EARNING RULES ---
+    // 1. Bronze tier (default) = NO coins at all
+    // 2. COD: flat 1 coin per ₹500, NO tier multiplier
+    // 3. Online: 1 coin per ₹250, WITH tier multiplier (Silver=1x, Gold=1.5x, Platinum=2x)
 
-    const baseRate = order.paymentMethod === 'cod' ? 500 : 100;
-    const tierMultipliers = {
-      'Bronze': 1,
-      'Silver': 1.2,
-      'Gold': 1.5,
-      'Platinum': 2
-    };
-    const multiplier = tierMultipliers[user.membershipTier] || 1;
+    // Bronze customers earn nothing
+    if (!user.membershipTier || user.membershipTier === 'Bronze') {
+      // Still update totalSpent and tier even if no coins earned
+      user.totalSpent += order.totalPrice;
+      if (user.totalSpent >= 100000) user.membershipTier = 'Platinum';
+      else if (user.totalSpent >= 50000) user.membershipTier = 'Gold';
+      else if (user.totalSpent >= 10000) user.membershipTier = 'Silver';
+      await user.save();
 
-    const pointsEarned = Math.floor((order.totalPrice / baseRate) * multiplier);
+      order.isCoinsAwarded = true;
+      await order.save();
+      console.log(`💰 COINS: User ${user.email} is Bronze — no coins awarded. Tier: ${user.membershipTier}`);
+      return;
+    }
+
+    const isCOD = order.paymentMethod === 'cod';
+    let pointsEarned = 0;
+
+    if (isCOD) {
+      // COD: flat 1 coin per ₹500, no tier multiplier
+      pointsEarned = Math.floor(order.totalPrice / 500);
+    } else {
+      // Online: 1 coin per ₹250, with tier multiplier
+      const tierMultipliers = {
+        'Silver': 1,
+        'Gold': 1.5,
+        'Platinum': 2
+      };
+      const multiplier = tierMultipliers[user.membershipTier] || 1;
+      pointsEarned = Math.floor((order.totalPrice / 250) * multiplier);
+    }
 
     if (pointsEarned > 0) {
       user.loyaltyPoints += pointsEarned;

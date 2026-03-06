@@ -446,3 +446,56 @@ exports.toggleFlashSaleStatus = async (req, res) => {
         res.status(500).json({ message: 'Error toggling flash sale status' });
     }
 };
+
+// @desc    Update Coupon
+// @route   PUT /api/marketing/coupons/:id
+// @access  Private/Admin
+exports.updateCoupon = async (req, res) => {
+    try {
+        const coupon = await Coupon.findById(req.params.id);
+        if (!coupon) return res.status(404).json({ message: 'Coupon not found' });
+
+        const { code, discountType, discountAmount, minPurchase, expiryDate, isFirstOrderOnly, eligibleProducts, eligibleCategories, usageLimit, perUserLimit } = req.body;
+
+        if (code !== undefined) coupon.code = code;
+        if (discountType !== undefined) coupon.discountType = discountType;
+        if (discountAmount !== undefined) coupon.discountAmount = discountAmount;
+        if (minPurchase !== undefined) coupon.minPurchase = minPurchase;
+        if (expiryDate !== undefined) coupon.expiryDate = expiryDate;
+        if (isFirstOrderOnly !== undefined) coupon.isFirstOrderOnly = isFirstOrderOnly;
+        if (eligibleProducts !== undefined) coupon.eligibleProducts = eligibleProducts;
+        if (eligibleCategories !== undefined) coupon.eligibleCategories = eligibleCategories;
+        if (usageLimit !== undefined) coupon.usageLimit = usageLimit || null;
+        if (perUserLimit !== undefined) coupon.perUserLimit = perUserLimit || null;
+
+        const updated = await coupon.save();
+        res.json(updated);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Coupon update failed' });
+    }
+};
+
+// @desc    Update Flash Sale
+// @route   PUT /api/marketing/flash-sales/:id
+// @access  Private/Admin
+exports.updateFlashSale = async (req, res) => {
+    try {
+        const sale = await FlashSale.findById(req.params.id);
+        if (!sale) return res.status(404).json({ message: 'Flash sale not found' });
+
+        const { name, discountPercentage, startTime, endTime, products } = req.body;
+
+        if (name !== undefined) sale.name = name;
+        if (discountPercentage !== undefined) sale.discountPercentage = discountPercentage;
+        if (startTime !== undefined) sale.startTime = startTime;
+        if (endTime !== undefined) sale.endTime = endTime;
+        if (products !== undefined) sale.products = products;
+
+        const updated = await sale.save();
+        res.json(updated);
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ message: 'Flash sale update failed' });
+    }
+};

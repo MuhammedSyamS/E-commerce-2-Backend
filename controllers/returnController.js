@@ -113,11 +113,47 @@ const createReturnRequest = async (req, res) => {
 // @access  Private/Admin
 const getAllReturns = async (req, res) => {
     try {
-        const returns = await Return.find({})
+        const pageSize = Number(req.query.pageSize) || 20;
+        const page = Number(req.query.page) || 1;
+        const { keyword, status, type } = req.query;
+
+        let query = {};
+
+        if (keyword) {
+            const isObjectId = keyword.match(/^[0-9a-fA-F]{24}$/);
+            if (isObjectId) {
+                query.$or = [{ _id: keyword }, { order: keyword }];
+            } else {
+                const User = require('../models/User');
+                const users = await User.find({
+                    $or: [
+                        { email: { $regex: keyword, $options: 'i' } },
+                        { firstName: { $regex: keyword, $options: 'i' } },
+                        { lastName: { $regex: keyword, $options: 'i' } }
+                    ]
+                }).select('_id');
+                const userIds = users.map(u => u._id);
+                query.user = { $in: userIds };
+            }
+        }
+
+        if (status && status !== 'all' && status !== 'All') query.status = status;
+        if (type && type !== 'all') query.type = type;
+
+        const count = await Return.countDocuments(query);
+        const returnsList = await Return.find(query)
             .populate('user', 'firstName lastName email')
             .populate('order', '_id createdAt')
-            .sort({ createdAt: -1 });
-        res.json(returns);
+            .sort({ createdAt: -1 })
+            .limit(pageSize)
+            .skip(pageSize * (page - 1));
+
+        res.json({
+            returns: returnsList,
+            page,
+            pages: Math.ceil(count / pageSize),
+            total: count
+        });
     } catch (error) {
         res.status(500).json({ message: error.message });
     }

@@ -4,6 +4,7 @@ const router = express.Router();
 // Import your controller functions
 const {
   getProducts,
+  getHomeProducts,
   getProductBySlug,
   createProductReview,
   getFeaturedReviews,
@@ -31,6 +32,7 @@ router.get('/search', require('../controllers/productController').searchProducts
  * @access  Public
  */
 router.get('/', getProducts);
+router.get('/home', getHomeProducts);
 
 /**
  * @route   GET /api/products/recommendations

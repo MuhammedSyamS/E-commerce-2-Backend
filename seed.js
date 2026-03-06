@@ -144,13 +144,27 @@ const products = [
     price: 2199,
     category: "Accessories",
     image: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&q=80&w=800",
-    isBestSeller: false,
+    isBestSeller: true,
     isNewArrival: true,
     numReviews: 42,
     reviews: [],
     rating: 4.3,
     description: "Classic wayfarer sunglasses with UV400 polarized lenses.",
     countInStock: 45
+  },
+  {
+    name: "Silver Signet Ring",
+    slug: "silver-signet-ring",
+    price: 3999,
+    category: "Accessories",
+    image: "https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&q=80&w=800",
+    isBestSeller: true,
+    isNewArrival: true,
+    numReviews: 15,
+    reviews: [],
+    rating: 4.9,
+    description: "Minimalist stainless steel ring for a modern look.",
+    countInStock: 20
   }
 ];
 
