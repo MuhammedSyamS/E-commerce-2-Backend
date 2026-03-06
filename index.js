@@ -30,6 +30,9 @@ requiredEnv.forEach((key) => {
 const app = express();
 const server = http.createServer(app);
 
+// Enable "trust proxy" if behind a reverse proxy (Render, Heroku, etc.)
+app.set("trust proxy", 1);
+
 // ============================
 // 🛡 SECURITY MIDDLEWARE
 // ============================
