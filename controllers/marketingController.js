@@ -213,15 +213,28 @@ exports.subscribeNewsletter = async (req, res) => {
 
         res.status(201).json({ message: 'Welcome to the Inner Circle.' });
     } catch (error) {
-        console.error("Subscription Error:", error);
-        // Also log to our email log file for unified debugging
-        const fs = require('fs');
-        const path = require('path');
-        const logFile = path.join(__dirname, '../debug_otp.log');
-        const timestamp = new Date().toISOString();
-        fs.appendFileSync(logFile, `[${timestamp}] SUBSCRIPTION CTRL ERROR: ${error.message}\n`);
+        console.error("Newsletter Subscription ERROR:", {
+            message: error.message,
+            stack: error.stack,
+            body: req.body
+        });
+        
+        // Log detailed error to debug_otp.log
+        try {
+            const fs = require('fs');
+            const path = require('path');
+            const logFile = path.join(__dirname, '../debug_otp.log');
+            const timestamp = new Date().toISOString();
+            fs.appendFileSync(logFile, `[${timestamp}] ! SUBSCRIPTION ERROR: ${error.message}\nStack: ${error.stack}\n`);
+        } catch (logErr) {
+            console.error("Log failed", logErr);
+        }
 
-        res.status(500).json({ message: 'Subscription failed', error: error.message });
+        res.status(500).json({ 
+            success: false,
+            message: 'Internal server error during subscription. Our team has been notified.',
+            error: process.env.NODE_ENV === 'development' ? error.message : undefined
+        });
     }
 };
 

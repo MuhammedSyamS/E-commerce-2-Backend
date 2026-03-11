@@ -17,13 +17,32 @@ if (!publicVapidKey || !privateVapidKey) {
 
 // 1. Subscribe User to Push
 router.post('/subscribe', protect, async (req, res) => {
-    const subscription = req.body;
-    console.log("SUBSCRIBE ENDPOINT HIT:", req.user._id, subscription); // DEBUG
-    const user = await User.findById(req.user._id);
-    user.pushSubscription = subscription;
-    const savedUser = await user.save();
-    console.log("SUBSCRIPTION SAVED DB:", savedUser.pushSubscription); // DEBUG
-    res.status(201).json({ message: 'Push Subscription Saved' });
+    try {
+        const subscription = req.body;
+        console.log("SUBSCRIBE ENDPOINT HIT:", req.user?._id, subscription); // DEBUG
+        
+        if (!subscription || !subscription.endpoint) {
+            return res.status(400).json({ message: 'Invalid subscription data' });
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) {
+            return res.status(404).json({ message: 'User not found' });
+        }
+
+        user.pushSubscription = subscription;
+        const savedUser = await user.save();
+        console.log("SUBSCRIPTION SAVED DB:", savedUser.pushSubscription ? 'YES' : 'NO'); // DEBUG
+        res.status(201).json({ message: 'Push Subscription Saved' });
+    } catch (error) {
+        console.error("PUSH SUBSCRIBE ERROR:", {
+            message: error.message,
+            stack: error.stack,
+            userId: req.user?._id,
+            body: req.body
+        });
+        res.status(500).json({ message: 'Failed to save subscription', error: error.message });
+    }
 });
 
 // 2. Get User Notifications (History)
