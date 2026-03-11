@@ -95,4 +95,10 @@ const returnSchema = mongoose.Schema({
 
 const Return = mongoose.model('Return', returnSchema);
 
+// Add indexes for performance
+returnSchema.index({ user: 1 });
+returnSchema.index({ order: 1 });
+returnSchema.index({ status: 1 });
+returnSchema.index({ createdAt: -1 });
+
 module.exports = Return;

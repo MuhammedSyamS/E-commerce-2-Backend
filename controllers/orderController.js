@@ -275,9 +275,10 @@ const getMyOrders = async (req, res) => {
     // Add returnId and tracking to each order
     const myOrders = await Promise.all(myOrdersRaw.map(async (order) => {
       const latestReturn = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+      const prefix = latestReturn?.type === 'Exchange' ? 'EXC' : 'RTN';
       return {
         ...order._doc,
-        returnId: latestReturn ? `RTN-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
+        returnId: latestReturn ? `${prefix}-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
         returnIdFull: latestReturn ? latestReturn._id : null,
         returnType: latestReturn ? latestReturn.type : null,
         returnTrackingId: latestReturn?.pickupDetails?.trackingId || null,
@@ -316,10 +317,11 @@ const getOrderById = async (req, res) => {
 
       // Fetch Latest Return ID if exists
       const latestReturn = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+      const prefix = latestReturn?.type === 'Exchange' ? 'EXC' : 'RTN';
 
       res.status(200).json({
         ...order._doc,
-        returnId: latestReturn ? `RTN-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
+        returnId: latestReturn ? `${prefix}-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
         returnIdFull: latestReturn ? latestReturn._id : null,
         returnType: latestReturn ? latestReturn.type : null,
         returnTrackingId: latestReturn?.pickupDetails?.trackingId || null,
@@ -1193,6 +1195,7 @@ const trackOrder = async (req, res) => {
 
     // Fetch Latest Return ID if exists (USE RESOLVED order._id)
     const latestReturn = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+    const prefix = latestReturn?.type === 'Exchange' ? 'EXC' : 'RTN';
 
     // Return Safe Public Data
     res.json({
@@ -1207,12 +1210,12 @@ const trackOrder = async (req, res) => {
       shippedAt: order.shippedAt,
       returnRequestedAt: order.returnRequestedAt,
       returnedAt: order.returnedAt,
-      returnId: latestReturn ? `${latestReturn.type === 'Exchange' ? 'EXC' : 'RTN'}-${latestReturn._id.toString().toUpperCase()}` : null,
+      returnId: latestReturn ? `${prefix}-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
       returnIdFull: latestReturn ? latestReturn._id : null,
       returnStatus: latestReturn ? latestReturn.status : null,
       returnType: latestReturn ? latestReturn.type : null,
-      returnQty: latestReturn ? latestReturn.orderItem.qty : 0,
-      returnItemName: latestReturn ? latestReturn.orderItem.name : null,
+      returnQty: latestReturn ? latestReturn.orderItem?.qty : 0,
+      returnItemName: latestReturn ? latestReturn.orderItem?.name : null,
       returnTrackingId: latestReturn?.pickupDetails?.trackingId || null,
       returnCourier: latestReturn?.pickupDetails?.courier || null,
       returnPickupDate: latestReturn?.pickupDetails?.scheduledDate || null,
@@ -1380,7 +1383,8 @@ const lookupOrder = async (req, res) => {
     }
 
     // Fetch Latest Return ID if exists
-    const latestReturn = await Return.findOne({ order: orderId }).sort({ createdAt: -1 });
+    const latestReturn = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+    const prefix = latestReturn?.type === 'Exchange' ? 'EXC' : 'RTN';
 
     res.json({
       _id: order._id,
@@ -1394,13 +1398,16 @@ const lookupOrder = async (req, res) => {
       shippedAt: order.shippedAt,
       returnRequestedAt: order.returnRequestedAt,
       returnedAt: order.returnedAt,
-      returnId: latestReturn ? `RTN-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
+      returnId: latestReturn ? `${prefix}-${latestReturn._id.toString().slice(-8).toUpperCase()}` : null,
       returnIdFull: latestReturn ? latestReturn._id : null,
+      returnStatus: latestReturn ? latestReturn.status : null,
       returnType: latestReturn ? latestReturn.type : null,
-      returnQty: latestReturn ? latestReturn.orderItem.qty : 0,
-      returnItemName: latestReturn ? latestReturn.orderItem.name : null,
+      returnQty: latestReturn ? latestReturn.orderItem?.qty : 0,
+      returnItemName: latestReturn ? latestReturn.orderItem?.name : null,
       returnTrackingId: latestReturn?.pickupDetails?.trackingId || null,
       returnCourier: latestReturn?.pickupDetails?.courier || null,
+      returnPickupDate: latestReturn?.pickupDetails?.scheduledDate || null,
+      returnPickupMethod: latestReturn?.pickupDetails?.method || 'Pickup',
       totalPrice: order.totalPrice,
       createdAt: order.createdAt,
       items: order.orderItems.map(item => ({

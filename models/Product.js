@@ -5,8 +5,8 @@ const reviewSchema = new mongoose.Schema({
   rating: { type: Number, required: true },
   comment: { type: String, required: true },
   user: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
-  images: [{ type: String }], // Array of Base64 strings (Max 4)
-  videos: [{ type: String }], // Array of Base64 strings (Max 2) - CHANGED from single 'video'
+  images: [{ type: String }], // Array of Base64 strings (Max 10)
+  videos: [{ type: String }], // Array of Base64 strings (Max 5) - Enforced on Frontend
   isApproved: { type: Boolean, default: true }, // Moderation
   adminResponse: { type: String }, // Reply
   isVerifiedPurchase: { type: Boolean, default: false }, // NEW: Verified Badge
@@ -35,6 +35,7 @@ const productSchema = new mongoose.Schema({
   flashSalePrice: { type: Number },
   flashSaleExpiry: { type: Date },
   countInStock: { type: Number, required: true, default: 0 },
+  badge: { type: String }, // NEW: Primary badge (e.g. "New Arrival", "Trending", "Home Appliances")
 
   // NEW: Advanced Fields
   video: { type: String }, // YouTube or File URL
@@ -67,6 +68,7 @@ productSchema.index({ viewCount: -1 });
 productSchema.index({ createdAt: -1 });
 productSchema.index({ price: 1 });
 productSchema.index({ name: 'text', tags: 'text' }); // For Keyword Search
+productSchema.index({ badge: 1 });
 
 // ENFORCE STOCK CONSISTENCY
 // ENFORCE STOCK CONSISTENCY

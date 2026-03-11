@@ -25,15 +25,29 @@ exports.updateSettings = async (req, res) => {
         // Update fields
         const fields = Object.keys(req.body);
         fields.forEach(field => {
-            // Prevent updating _id or timestamps manually if passed
             if (field !== '_id' && field !== 'createdAt' && field !== 'updatedAt') {
-                settings[field] = req.body[field];
+                if (field === 'heroSlides' && Array.isArray(req.body.heroSlides)) {
+                    // Filter out slides without an image to prevent validation errors
+                    settings.heroSlides = req.body.heroSlides.filter(slide => slide.img && slide.img.trim() !== '');
+                } else if (field === 'topNavbarMessages' && Array.isArray(req.body.topNavbarMessages)) {
+                    settings.topNavbarMessages = req.body.topNavbarMessages.filter(msg => msg.text && msg.text.trim() !== '');
+                } else {
+                    settings[field] = req.body[field];
+                }
             }
         });
+
+        if (req.body.heroSlides) {
+            settings.markModified('heroSlides');
+        }
+        if (req.body.topNavbarMessages) {
+            settings.markModified('topNavbarMessages');
+        }
 
         const updatedSettings = await settings.save();
         res.json(updatedSettings);
     } catch (error) {
+        console.error("Settings Update Error:", error);
         res.status(500).json({ message: "Failed to update settings" });
     }
 };

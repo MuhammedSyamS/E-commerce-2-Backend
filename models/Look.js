@@ -6,6 +6,10 @@ const lookSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     },
+    userName: {
+        type: String,
+        required: false // Optional for backward compatibility, but we'll populate it
+    },
     image: {
         type: String,
         required: true

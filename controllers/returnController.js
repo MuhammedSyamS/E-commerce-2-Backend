@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const sendEmail = require('../utils/sendEmail');
 const { getReturnStatusTemplate } = require('../utils/emailTemplates');
 const Product = require('../models/Product');
+const User = require('../models/User'); // Move to top
 const pushUtils = require('../utils/push');
 
 // @desc    Create a Return Request
@@ -124,7 +125,7 @@ const getAllReturns = async (req, res) => {
             if (isObjectId) {
                 query.$or = [{ _id: keyword }, { order: keyword }];
             } else {
-                const User = require('../models/User');
+                // Optimize: Only find if not an ID
                 const users = await User.find({
                     $or: [
                         { email: { $regex: keyword, $options: 'i' } },

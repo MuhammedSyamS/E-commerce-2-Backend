@@ -36,7 +36,21 @@ const siteSettingsSchema = new mongoose.Schema({
             'GBP': 0.0093,
             'INR': 1
         }
-    }
+    },
+
+    // Hero Section (NEW Phase 12)
+    heroSlides: [{
+        img: { type: String, required: true },
+        title: { type: String, default: '' },
+        subtitle: { type: String, default: '' },
+        link: { type: String, default: '' }
+    }],
+
+    // Top Navbar Section
+    topNavbarMessages: [{
+        text: { type: String, required: true },
+        link: { type: String, default: '' }
+    }]
 
 }, { timestamps: true });
 

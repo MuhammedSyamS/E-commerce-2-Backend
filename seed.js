@@ -14,9 +14,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1505740420928-5e560c06d30e?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 320,
-    reviews: [],
-    rating: 4.8,
     description: "Premium wireless headphones with active noise cancellation and 30-hour battery life.",
     countInStock: 50
   },
@@ -28,9 +25,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1595225476474-87563907a212?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    numReviews: 150,
-    reviews: [],
-    rating: 4.9,
     description: "Wireless mechanical keyboard with Gateron Red switches and RGB backlight.",
     countInStock: 30
   },
@@ -42,9 +36,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1579586337278-3befd40fd17a?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    numReviews: 45,
-    reviews: [],
-    rating: 4.2,
     description: "Track your health metrics with precision. Waterproof and durable.",
     countInStock: 100
   },
@@ -58,9 +49,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1576871337632-b9aef4c17ab9?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 88,
-    reviews: [],
-    rating: 4.7,
     description: "Classic oversized denim jacket with a vintage wash.",
     countInStock: 40
   },
@@ -72,9 +60,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1521572163474-6864f9cf17ab?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    numReviews: 24,
-    reviews: [],
-    rating: 4.5,
     description: "100% organic cotton t-shirt. Breathable and sustainable.",
     countInStock: 150
   },
@@ -86,9 +71,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1624378439575-d8705ad7ae80?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 112,
-    reviews: [],
-    rating: 4.6,
     description: "Functional cargo pants with multiple pockets and a tapered fit.",
     countInStock: 60
   },
@@ -102,9 +84,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1507473888900-52e1adad54cd?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
-    numReviews: 18,
-    reviews: [],
-    rating: 4.4,
     description: "Sleek LED desk lamp with adjustable brightness and color temperature.",
     countInStock: 25
   },
@@ -116,9 +95,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1485955900006-10f4d324d411?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 56,
-    reviews: [],
-    rating: 4.8,
     description: "Hand-glazed ceramic pot, perfect for indoor plants.",
     countInStock: 80
   },
@@ -132,9 +108,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1553062407-98eeb64c6a62?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: false,
-    numReviews: 204,
-    reviews: [],
-    rating: 4.9,
     description: "Genuine leather backpack with padded laptop compartment.",
     countInStock: 20
   },
@@ -146,9 +119,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1572635196237-14b3f281503f?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    numReviews: 42,
-    reviews: [],
-    rating: 4.3,
     description: "Classic wayfarer sunglasses with UV400 polarized lenses.",
     countInStock: 45
   },
@@ -160,9 +130,6 @@ const products = [
     image: "https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
-    numReviews: 15,
-    reviews: [],
-    rating: 4.9,
     description: "Minimalist stainless steel ring for a modern look.",
     countInStock: 20
   }
@@ -171,13 +138,34 @@ const products = [
 const seedDatabase = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
-    console.log("SLOOK Studio DB Connected for Fresh Seed...");
+    console.log("SLOOK Studio DB Connected for Smart Seed...");
 
-    await Product.deleteMany();
-    console.log("All previous items removed.");
+    let updatedCount = 0;
+    let createdCount = 0;
 
-    await Product.insertMany(products);
-    console.log(`${products.length} Premium Silver Products Seeded Successfully!`);
+    for (const productData of products) {
+      // Remove review fields to avoid overwriting genuine data
+      const { reviews, numReviews, rating, ...updateData } = productData;
+
+      const result = await Product.findOneAndUpdate(
+        { slug: productData.slug },
+        { 
+          $set: updateData,
+          $setOnInsert: { reviews: [], numReviews: 0, rating: 0 } 
+        },
+        { upsert: true, new: true, setDefaultsOnInsert: true }
+      );
+      
+      if (result) {
+        // Check if it was newly created (createdAt === updatedAt within a small margin)
+        const isNew = result.createdAt.getTime() === result.updatedAt.getTime();
+        if (isNew) createdCount++;
+        else updatedCount++;
+      }
+    }
+
+    console.log(`Seeding complete: ${createdCount} created, ${updatedCount} updated.`);
+    console.log("Product IDs preserved for existing items.");
 
     process.exit(0);
   } catch (error) {

@@ -97,7 +97,7 @@ exports.googleLogin = async (req, res) => {
   try {
     const { token } = req.body;
     const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID); // Ensure env var is set or handle gracefully
+    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
     const ticket = await client.verifyIdToken({
       idToken: token,
@@ -150,8 +150,15 @@ exports.googleLogin = async (req, res) => {
     res.json(userData);
 
   } catch (error) {
-    console.error("Google Login Error:", error);
-    res.status(400).json({ message: "Google Login Failed" });
+    console.error("Google Login Backend Exception:", {
+      message: error.message,
+      stack: error.stack,
+      clientId: process.env.GOOGLE_CLIENT_ID ? "PRESENT" : "MISSING"
+    });
+    res.status(400).json({ 
+      message: "Google Login Failed", 
+      details: error.message 
+    });
   }
 };
 exports.recordView = async (req, res) => {

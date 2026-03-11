@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node index.js",
     "dev": "nodemon --watch . --ext js,json,env index.js",
-    "cleanup": "node scripts/force_cleanup.js"
+    "cleanup": "node scripts/force_cleanup.js",
+    "seed": "node seed.js",
+    "seed:reviews": "node scripts/seed_reviews.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",

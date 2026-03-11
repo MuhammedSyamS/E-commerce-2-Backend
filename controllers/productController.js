@@ -13,7 +13,7 @@ exports.searchProducts = async (req, res) => {
         { tags: { $regex: keyword, $options: 'i' } }
       ]
     })
-      .select('name slug image price category tags')
+      .select('name slug image price category tags isNewArrival isBestSeller')
       .limit(30);
 
     const scoredProducts = products.map(p => {
@@ -42,8 +42,8 @@ exports.getProducts = async (req, res) => {
     const {
       keyword, category, subcategory,
       minPrice, maxPrice, sort,
-      size, color, minRating,
-      isNewArrival, isBestSeller, inStock
+      size, color, minRating, minDiscount,
+      isNewArrival, isBestSeller, inStock, isFlashSale
     } = req.query;
 
     let query = {};
@@ -79,7 +79,33 @@ exports.getProducts = async (req, res) => {
     // 5. Special Flags
     if (isNewArrival === 'true') query.isNewArrival = true;
     if (isBestSeller === 'true') query.isBestSeller = true;
+    if (isFlashSale === 'true') query.isFlashSale = true;
     if (inStock === 'true') query.countInStock = { $gt: 0 };
+
+    // 6. Discount Filter (Calculated or Flag)
+    if (minDiscount) {
+      const discountVal = Number(minDiscount);
+      // If we have a discountPrice, we check if (price - discountPrice)/price * 100 >= minDiscount
+      // Since MongoDB can't easily do this calc on the fly without aggregation if we want it efficient,
+      // we check if discountPrice > 0 and basically filter products that have a discount.
+      // For specific percentage, normally we'd store discountPercentage in the model.
+      // For now, let's filter products where discountPrice exists and is > 0
+      query.discountPrice = { $gt: 0 };
+    }
+
+    // 5.1 Dynamic Specs (spec_Key=Value)
+    Object.keys(req.query).forEach(key => {
+      if (key.startsWith('spec_')) {
+        const specKey = key.replace('spec_', '');
+        const specValue = req.query[key];
+        
+        // Match in specs array
+        if (!query.$and) query.$and = [];
+        query.$and.push({
+          specs: { $elemMatch: { key: specKey, value: specValue } }
+        });
+      }
+    });
 
     // 6. Rating Filter
     if (minRating) {
@@ -126,34 +152,82 @@ exports.getProducts = async (req, res) => {
 
 exports.getHomeProducts = async (req, res) => {
   try {
-    // Parallel fetch with strict limits and Lean queries
-    let [trending, newArrivals, bestSellers] = await Promise.all([
-      Product.find({})
-        .sort({ viewCount: -1 })
-        .limit(10)
-        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
-        .lean(),
+    // Parallel fetch for the two core built-in sections
+    const [newArrivals, bestSellers] = await Promise.all([
       Product.find({ isNewArrival: true })
         .sort({ createdAt: -1 })
         .limit(10)
-        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
+        .select('name slug image price category rating numReviews tags isNewArrival isBestSeller variants countInStock')
         .lean(),
       Product.find({ isBestSeller: true })
         .sort({ createdAt: -1 })
         .limit(10)
-        .select('name slug image price category rating numReviews isNewArrival isBestSeller variants countInStock')
+        .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
         .lean()
     ]);
+    
+    // Fetch most recent custom-badged products (using badge field OR tags array)
+    const badgedProducts = await Product.find({ 
+      $or: [
+        { badge: { $exists: true, $ne: null, $ne: '' } },
+        { "tags.0": { $exists: true } }
+      ]
+    })
+    .sort({ createdAt: -1 })
+    .limit(100)
+    .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
+    .lean();
 
-    // FALLBACK: If specific sections are empty, fill with recent products to avoid empty home page
-    if (newArrivals.length === 0 && trending.length > 0) {
-      newArrivals = trending.slice(0, 5);
-    }
-    if (bestSellers.length === 0 && trending.length > 0) {
-      bestSellers = [...trending].reverse().slice(0, 5);
+    const sectionsMap = new Map();
+    
+    // Group products dynamically
+    if (badgedProducts && badgedProducts.length > 0) {
+      badgedProducts.forEach(p => {
+        // 1. Group by dedicated 'badge' field (Primary)
+        if (p.badge) {
+          const tag = p.badge;
+          // Skip if the badge is just reinforcing the core sections
+          if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller' || tag.toLowerCase() === 'trending' || tag.toLowerCase() === 'trending now') {
+            // Do nothing, already handled by core sections
+          } else {
+            if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
+            if (sectionsMap.get(tag).length < 10 && !sectionsMap.get(tag).find(item => item._id.toString() === p._id.toString())) {
+              sectionsMap.get(tag).push(p);
+            }
+          }
+        }
+        
+        // 2. Group by custom tags (Secondary fallback)
+        if (p.tags && p.tags.length > 0) {
+          p.tags.forEach(tag => {
+             // Skip if the tag is just reinforcing the core sections
+             if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller' || tag.toLowerCase() === 'trending' || tag.toLowerCase() === 'trending now') return;
+             
+             if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
+             if (sectionsMap.get(tag).length < 10 && !sectionsMap.get(tag).find(item => item._id.toString() === p._id.toString())) {
+               sectionsMap.get(tag).push(p);
+             }
+          });
+        }
+      });
     }
 
-    res.json({ trending, newArrivals, bestSellers });
+    const dynamicSections = Array.from(sectionsMap.entries())
+      .map(([title, items]) => {
+        // Deduplicate: remove items that are already in newArrivals or bestSellers
+        const filteredItems = items.filter(item => 
+          !newArrivals.find(na => na._id.toString() === item._id.toString()) &&
+          !bestSellers.find(bs => bs._id.toString() === item._id.toString())
+        );
+        return {
+          id: title.toLowerCase().replace(/\s+/g, '-'),
+          title,
+          items: filteredItems
+        };
+      })
+      .filter(section => section.items.length > 0); // Only return sections with items
+
+    res.json({ newArrivals, bestSellers, dynamicSections });
   } catch (error) {
     console.error("Home Data Fetch Error:", error);
     res.status(500).json({ message: "Failed to load home data" });
@@ -589,7 +663,7 @@ exports.createProduct = async (req, res) => {
 
   try {
 
-    const { name, price, category, subcategory, image, images, description, richDescription, isBestSeller, countInStock, discountPrice, specs, tags, video, variants, seo } = req.body;
+    const { name, price, category, subcategory, image, images, description, richDescription, isBestSeller, isNewArrival, countInStock, discountPrice, specs, tags, badge, video, variants, seo } = req.body;
 
     if (!name) return res.status(400).json({ message: "Product Name is required" });
     if (!price) return res.status(400).json({ message: "Price is required" });
@@ -614,12 +688,14 @@ exports.createProduct = async (req, res) => {
       description,
       richDescription, // NEW
       specs: specs || [],
-      tags: tags || [],
+      tags: tags ? tags.filter(t => t && t.trim()).map(t => t.trim()) : [],
       // NEW ADVANCED FIELDS
       video,
       variants: variants || [],
       seo: seo || {},
-      isBestSeller: isBestSeller || false
+      isBestSeller: isBestSeller || false,
+      isNewArrival: isNewArrival || false,
+      badge: badge || ''
     });
 
     const createdProduct = await product.save();
@@ -648,8 +724,9 @@ exports.createProduct = async (req, res) => {
 // @route   PUT /api/products/:id
 // @access  Private/Admin
 exports.updateProduct = async (req, res) => {
+  console.log("UPDATE PRODUCT PAYLOAD:", req.body);
   try {
-    const { name, price, description, richDescription, image, images, category, subcategory, countInStock, isBestSeller, discountPrice, specs, tags, video, variants, seo } = req.body;
+    const { name, price, description, richDescription, image, images, category, subcategory, countInStock, isBestSeller, isNewArrival, badge, discountPrice, specs, tags, video, variants, seo } = req.body;
     const product = await Product.findById(req.params.id);
 
     if (product) {
@@ -668,9 +745,11 @@ exports.updateProduct = async (req, res) => {
 
       // ... other fields ...
       product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
+      product.isNewArrival = isNewArrival !== undefined ? isNewArrival : product.isNewArrival;
       product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
       product.specs = specs !== undefined ? specs : product.specs;
-      product.tags = tags !== undefined ? tags : product.tags;
+      product.tags = tags !== undefined ? tags.filter(t => t && t.trim()).map(t => t.trim()) : product.tags;
+      product.badge = badge !== undefined ? badge : product.badge;
       product.video = video || product.video;
       product.variants = variants || product.variants;
       product.seo = seo || product.seo;
@@ -931,22 +1010,49 @@ exports.getFilterData = async (req, res) => {
     const categories = await Product.distinct('category');
     const subcategories = await Product.distinct('subcategory');
 
-    const products = await Product.find({ 'variants.0': { $exists: true } }).select('variants');
+    // Robust extraction of sizes and colors from ALL products (variants + specs)
+    const allProducts = await Product.find({}).select('variants specs');
     const sizes = new Set();
     const colors = new Set();
+    const specsMap = {};
 
-    products.forEach(p => {
-      p.variants.forEach(v => {
-        if (v.size) sizes.add(v.size);
-        if (v.color) colors.add(v.color);
-      });
+    allProducts.forEach(p => {
+      // From Variants
+      if (p.variants && p.variants.length > 0) {
+        p.variants.forEach(v => {
+          if (v.size) sizes.add(v.size);
+          if (v.color) colors.add(v.color);
+        });
+      }
+      
+      // From Specs
+      if (p.specs && p.specs.length > 0) {
+        p.specs.forEach(s => {
+          const key = s.key.toLowerCase();
+          const val = s.value;
+          if (key === 'size' || key === 'dimension' || key === 'dimensions' || key === 'size/dimension') sizes.add(val);
+          if (key === 'color' || key === 'shade' || key === 'finish') colors.add(val);
+          
+          if (!specsMap[s.key]) specsMap[s.key] = new Set();
+          specsMap[s.key].add(val);
+        });
+      }
+    });
+
+    const specs = {};
+    Object.keys(specsMap).forEach(key => {
+      // Don't duplicate color/size in dynamic specs if they are already in their own sections
+      const lowerKey = key.toLowerCase();
+      if (['color', 'shade', 'finish', 'size', 'dimension', 'dimensions'].includes(lowerKey)) return;
+      specs[key] = Array.from(specsMap[key]).sort();
     });
 
     res.json({
-      categories: ['All', ...categories],
+      categories: ['All', ...categories.filter(c => c !== 'All')].slice(0, 15),
       subcategories: subcategories.filter(Boolean),
       sizes: Array.from(sizes).sort(),
-      colors: Array.from(colors).sort()
+      colors: Array.from(colors).sort(),
+      specs
     });
   } catch (error) {
     res.status(500).json({ message: "Failed to fetch filter data" });

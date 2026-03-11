@@ -14,7 +14,7 @@ const {
   trackOrder,
   lookupOrder
 } = require('../controllers/orderController');
-const { generateInvoice, generateManifest } = require('../controllers/invoiceController');
+const { generateInvoice, generateManifest, generateAdminReport } = require('../controllers/invoiceController');
 const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
 
 // Public Route
@@ -43,6 +43,7 @@ router.put('/:id/cancel/:itemId', protect, cancelOrderItem);
 // Invoice & Manifest Routes
 router.get('/:id/invoice', protect, generateInvoice);
 router.get('/:id/manifest', protect, hasPermission('manage_orders'), generateManifest);
+router.get('/admin/report', protect, admin, generateAdminReport);
 
 // Matches: GET /api/orders/:id (Must be last to avoid catching sub-routes)
 router.route('/:id').get(protect, getOrderById);
