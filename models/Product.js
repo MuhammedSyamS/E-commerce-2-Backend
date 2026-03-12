@@ -62,8 +62,11 @@ const productSchema = new mongoose.Schema({
 // INDEXES FOR PERFORMANCE
 productSchema.index({ isNewArrival: 1 });
 productSchema.index({ isBestSeller: 1 });
+productSchema.index({ isFlashSale: 1 });
+productSchema.index({ discountPrice: 1 });
 productSchema.index({ category: 1 });
 productSchema.index({ subcategory: 1 });
+productSchema.index({ rating: -1 });
 productSchema.index({ viewCount: -1 });
 productSchema.index({ createdAt: -1 });
 productSchema.index({ price: 1 });

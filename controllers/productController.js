@@ -13,8 +13,9 @@ exports.searchProducts = async (req, res) => {
         { tags: { $regex: keyword, $options: 'i' } }
       ]
     })
-      .select('name slug image price category tags isNewArrival isBestSeller')
-      .limit(30);
+      .select('name slug image price category tags isNewArrival isBestSeller rating numReviews')
+      .limit(30)
+      .lean();
 
     const scoredProducts = products.map(p => {
       let score = 0;
@@ -133,7 +134,9 @@ exports.getProducts = async (req, res) => {
     const products = await Product.find(query)
       .sort(sortOption)
       .limit(pageSize)
-      .skip(skip);
+      .skip(skip)
+      .select('name slug image price category tags isNewArrival isBestSeller rating numReviews countInStock badge variants')
+      .lean();
 
     if (req.query.page || req.query.pageSize) {
       return res.status(200).json({
@@ -240,18 +243,22 @@ exports.getHomeProducts = async (req, res) => {
 // @access  Public
 exports.getProductBySlug = async (req, res) => {
   try {
-    let product = await Product.findOne({ slug: req.params.slug }).populate('reviews.user', 'name firstName');
+    let product = await Product.findOne({ slug: req.params.slug })
+      .populate('reviews.user', 'name firstName')
+      .lean();
 
     // Fallback: Check by ID if not found by slug (and if valid ObjectId)
     if (!product && require('mongoose').Types.ObjectId.isValid(req.params.slug)) {
-      product = await Product.findById(req.params.slug).populate('reviews.user', 'name firstName');
+      product = await Product.findById(req.params.slug)
+        .populate('reviews.user', 'name firstName')
+        .lean();
     }
 
     if (product) {
       // Increment View Count
       product.viewCount = (product.viewCount || 0) + 1;
       await product.save();
-      res.json(product);
+      res.json(product.toObject ? product.toObject() : product);
     } else {
       res.status(404).json({ message: 'Product not found' });
     }

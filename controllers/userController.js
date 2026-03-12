@@ -368,7 +368,8 @@ exports.getUserProfile = async (req, res) => {
 
     // Fetch user with essential fields and populated wishlist
     const user = await User.findById(req.user._id)
-      .populate({ path: 'wishlist', select: 'name slug price image countInStock' });
+      .populate({ path: 'wishlist', select: 'name slug price image countInStock' })
+      .lean();
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
@@ -429,7 +430,7 @@ exports.getNotifications = async (req, res) => {
     // Fetch from Notification Collection
     const notifications = await Notification.find({
       $or: [{ user: req.user._id }, { user: null }] // Include global alerts
-    }).sort({ createdAt: -1 }).limit(20);
+    }).sort({ createdAt: -1 }).limit(20).lean();
 
     res.json(notifications);
 
