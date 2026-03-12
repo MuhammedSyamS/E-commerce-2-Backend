@@ -53,8 +53,11 @@ const siteSettingsSchema = new mongoose.Schema({
     }],
 
     // Marquee Section
-    marqueeText: { type: String, default: '' }
-
+    marqueeText: { type: String, default: '' },
+    marqueeMessages: [{
+        text: { type: String, required: true },
+        link: { type: String, default: '' }
+    }]
 }, { timestamps: true });
 
 // Singleton pattern helper: always fetch the first document
