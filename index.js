@@ -174,12 +174,8 @@ app.get("/", (req, res) => {
 const buildPath = path.join(__dirname, "../client/dist");
 app.use(express.static(buildPath));
 
-app.get("/:path*", (req, res) => {
-  if (!req.path.startsWith("/api")) {
-    res.sendFile(path.join(buildPath, "index.html"));
-  } else {
-    res.status(404).json({ message: "API Route Not Found" });
-  }
+app.get(/^(?!\/api).*/, (req, res) => {
+  res.sendFile(path.join(buildPath, "index.html"));
 });
 
 // ============================
