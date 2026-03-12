@@ -255,10 +255,10 @@ exports.getProductBySlug = async (req, res) => {
     }
 
     if (product) {
-      // Increment View Count
+      // Increment View Count efficiently without needing a full Mongoose document save
+      await Product.updateOne({ _id: product._id }, { $inc: { viewCount: 1 } });
       product.viewCount = (product.viewCount || 0) + 1;
-      await product.save();
-      res.json(product.toObject ? product.toObject() : product);
+      res.json(product);
     } else {
       res.status(404).json({ message: 'Product not found' });
     }
