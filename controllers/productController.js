@@ -1,5 +1,6 @@
 const Product = require('../models/Product');
 const { logStockChange } = require('../utils/stockUtils');
+const logger = require('../utils/logger');
 
 exports.searchProducts = async (req, res) => {
   try {
@@ -191,7 +192,7 @@ exports.getHomeProducts = async (req, res) => {
         if (p.badge) {
           const tag = p.badge;
           // Skip if the badge is just reinforcing the core sections
-          if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller' || tag.toLowerCase() === 'trending' || tag.toLowerCase() === 'trending now') {
+          if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller') {
             // Do nothing, already handled by core sections
           } else {
             if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
@@ -205,7 +206,7 @@ exports.getHomeProducts = async (req, res) => {
         if (p.tags && p.tags.length > 0) {
           p.tags.forEach(tag => {
              // Skip if the tag is just reinforcing the core sections
-             if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller' || tag.toLowerCase() === 'trending' || tag.toLowerCase() === 'trending now') return;
+             if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller') return;
              
              if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
              if (sectionsMap.get(tag).length < 10 && !sectionsMap.get(tag).find(item => item._id.toString() === p._id.toString())) {

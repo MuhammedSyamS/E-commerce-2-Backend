@@ -2,6 +2,7 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const Order = require('../models/Order');
 const orderController = require('./orderController');
+const logger = require('../utils/logger');
 
 // Initialize Razorpay
 // USE ENV VARS IN REAL APP
@@ -18,12 +19,12 @@ const createPaymentOrder = async (req, res) => {
     try {
         const { amount, currency = 'INR' } = req.body;
 
-        // DEV MOCK: Only if keys are missing
-        console.log("RAZORPAY DEBUG: Key ID present?", !!process.env.RAZORPAY_KEY_ID);
-        if (process.env.RAZORPAY_KEY_ID) console.log("RAZORPAY DEBUG: Key Starts With:", process.env.RAZORPAY_KEY_ID.substring(0, 8));
+        // DEV MOCK: Only if keys are missing AND not in production
+        const isMockAllowed = process.env.NODE_ENV !== 'production';
+        const isPlaceholderKey = !process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID === 'rzp_test_placeholder';
 
-        if (!process.env.RAZORPAY_KEY_ID || process.env.RAZORPAY_KEY_ID === 'rzp_test_placeholder') {
-            console.log("⚠️ USING MOCK PAYMENT ORDER (Dev Mode)");
+        if (isMockAllowed && isPlaceholderKey) {
+            logger.warn("⚠️ USING MOCK PAYMENT ORDER (Dev Mode)");
             return res.json({
                 id: `order_mock_${Date.now()}`,
                 currency,
@@ -70,12 +71,16 @@ const verifyPayment = async (req, res) => {
 
         // MOCK VERIFICATION LOGIC
         if (razorpay_order_id && razorpay_order_id.startsWith('order_mock_')) {
-            console.log("⚠️ VERIFYING MOCK PAYMENT");
+            if (process.env.NODE_ENV === 'production') {
+                logger.error("🚫 BLOCKED: Mock payment verification attempted in production!");
+                return res.status(403).json({ message: "Mock payments disabled in production" });
+            }
+            logger.warn("⚠️ VERIFYING MOCK PAYMENT");
             if (!razorpay_payment_id) return res.status(400).json({ message: "Invalid Mock Payment" });
         } else {
             // REAL RAZORPAY VERIFICATION
             if (!razorpay_signature) {
-                console.error("❌ PAYMENT VERIFY: Missing signature — possible UPI async issue");
+                logger.error("❌ PAYMENT VERIFY: Missing signature — possible UPI async issue");
                 return res.status(400).json({ message: "Payment signature missing. Try again or use another payment method." });
             }
 
@@ -85,14 +90,8 @@ const verifyPayment = async (req, res) => {
                 .update(body.toString())
                 .digest('hex');
 
-            console.log("🔑 PAYMENT VERIFY: Expected vs Received", {
-                expected: expectedSignature,
-                received: razorpay_signature,
-                match: expectedSignature === razorpay_signature
-            });
-
             if (expectedSignature !== razorpay_signature) {
-                console.error("❌ PAYMENT VERIFY: Signature mismatch!");
+                logger.error("❌ PAYMENT VERIFY: Signature mismatch!");
                 return res.status(400).json({ message: "Payment signature invalid. Please contact support." });
             }
         }

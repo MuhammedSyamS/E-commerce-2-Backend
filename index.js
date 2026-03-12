@@ -199,14 +199,9 @@ app.set("socketio", io);
 // ============================
 // 🛡️ GLOBAL ERROR HANDLING
 // ============================
-app.use((err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
-  logger.error(`Global Error: ${err.message}`, { stack: err.stack, path: req.path });
-  res.status(statusCode).json({
-    message: err.message,
-    stack: vault.NODE_ENV === "production" ? null : err.stack,
-  });
-});
+const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+app.use(notFound);
+app.use(errorHandler);
 
 // ============================
 // 🗄 DATABASE CONNECTION

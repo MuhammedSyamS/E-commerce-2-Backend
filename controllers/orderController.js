@@ -1,8 +1,8 @@
-console.log('Loading Order Controller...');
 const Order = require('../models/Order');
 const Product = require('../models/Product');
 const Return = require('../models/Return'); // NEW
 const sendEmail = require('../utils/sendEmail');
+const logger = require('../utils/logger');
 
 const { getOrderConfirmationTemplate, getShippingConfirmationTemplate } = require('../utils/emailTemplates');
 const { logStockChange } = require('../utils/stockUtils');
