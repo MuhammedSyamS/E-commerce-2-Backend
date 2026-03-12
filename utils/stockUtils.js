@@ -24,7 +24,6 @@ const logStockChange = async ({ productId, variant, oldStock, newStock, reason, 
             description: note
         });
 
-        console.log(`📝 Stock Logged: ${reason} | Product: ${productId} | Change: ${change} | New: ${newStock}`);
     } catch (error) {
         console.error("❌ Stock Logging Failed:", error.message);
     }

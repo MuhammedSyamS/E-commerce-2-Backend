@@ -26,7 +26,6 @@ exports.sendToUser = async (userId, title, message, data = {}) => {
                 url: data.url     // Deep link
             });
             await webpush.sendNotification(user.pushSubscription, payload);
-            console.log(`Push sent to user ${userId}`);
         }
     } catch (error) {
         console.error(`Failed to send push to user ${userId}:`, error.message);
@@ -42,7 +41,6 @@ exports.sendToAll = async (title, message, data = {}) => {
         // 2. Fetch all subscribed users
         const users = await User.find({ pushSubscription: { $exists: true } });
 
-        console.log(`Sending Broadcast Push to ${users.length} users...`);
         const payload = JSON.stringify({
             title,
             body: message,
@@ -63,7 +61,6 @@ exports.sendToAll = async (title, message, data = {}) => {
         );
 
         await Promise.all(promises);
-        console.log("Broadcast complete.");
     } catch (error) {
         console.error("Broadcast Push Error:", error);
     }

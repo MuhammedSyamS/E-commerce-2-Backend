@@ -245,12 +245,14 @@ exports.getProductBySlug = async (req, res) => {
   try {
     let product = await Product.findOne({ slug: req.params.slug })
       .populate('reviews.user', 'name firstName')
+      .select('-reviews.images -reviews.videos') // Exclude bulky media
       .lean();
 
     // Fallback: Check by ID if not found by slug (and if valid ObjectId)
     if (!product && require('mongoose').Types.ObjectId.isValid(req.params.slug)) {
       product = await Product.findById(req.params.slug)
         .populate('reviews.user', 'name firstName')
+        .select('-reviews.images -reviews.videos') // Exclude bulky media
         .lean();
     }
 
@@ -289,83 +291,45 @@ exports.getRecommendations = async (req, res) => {
     const limit = 4;
     const { category, exclude } = req.query;
 
-    // 1. "Frequently Bought Together" (Real purchase patterns)
-    if (exclude) {
-      const Order = require('../models/Order');
-      // Find orders containing this product
-      const companionOrders = await Order.find({ 'orderItems.product': exclude }).limit(50);
-
-      const freqMap = {};
-      companionOrders.forEach(order => {
-        order.orderItems.forEach(item => {
-          const pid = item.product.toString();
-          if (pid !== exclude) {
-            freqMap[pid] = (freqMap[pid] || 0) + 1;
-          }
-        });
-      });
-
-      // Sort by frequency
-      const companionIds = Object.keys(freqMap)
-        .sort((a, b) => freqMap[b] - freqMap[a])
-        .slice(0, 2); // Get top 2 companion products
-
-      if (companionIds.length > 0) {
-        const companions = await Product.find({ _id: { $in: companionIds } });
-        recommendations = [...companions];
-      }
+    // 1. Contextual recommendations (Same Category as viewed product) - Optimized
+    if (category) {
+      recommendations = await Product.find({
+        category,
+        _id: { $ne: exclude }
+      })
+      .select('name slug image price category rating numReviews countInStock badge variants')
+      .limit(limit)
+      .lean();
     }
 
-    // 2. Contextual recommendations (Same Category as viewed product)
-    if (category && recommendations.length < limit) {
-      recommendations = [
-        ...recommendations,
-        ...(await Product.find({
-          category,
-          _id: { $ne: exclude, $nin: recommendations.map(p => p._id) }
-        }).limit(limit - recommendations.length))
-      ];
-    }
-
-    // 2. If User Logged In & Has History (and we need more recs)
-    if (recommendations.length < limit && req.user) {
-      const User = require('../models/User');
-      const user = await User.findById(req.user._id).populate('recentlyViewed.product');
-
-      if (user && user.recentlyViewed.length > 0) {
-        const viewedCategories = user.recentlyViewed
-          .map(item => item.product?.category)
-          .filter(Boolean);
-
-        const viewedIds = user.recentlyViewed.map(item => item.product?._id);
-        if (exclude) viewedIds.push(exclude);
-
-        if (viewedCategories.length > 0) {
-          const personalRecs = await Product.find({
-            category: { $in: viewedCategories },
-            _id: { $nin: viewedIds, $nin: recommendations.map(p => p._id) }
-          }).limit(limit - recommendations.length);
-          recommendations = [...recommendations, ...personalRecs];
-        }
-      }
-    }
-
-    // 3. Fallback: Best Sellers or New Arrivals
+    // 2. Fallback: Best Sellers or New Arrivals if not enough recs
     if (recommendations.length < limit) {
-      const viewedIds = exclude ? [exclude] : [];
+      const existingIds = recommendations.map(p => p._id);
+      if (exclude) existingIds.push(exclude);
+
       const fallback = await Product.find({
-        _id: { $nin: [...recommendations.map(p => p._id), ...viewedIds] },
+        _id: { $nin: existingIds },
         isBestSeller: true
-      }).limit(limit - recommendations.length);
+      })
+      .select('name slug image price category rating numReviews countInStock badge variants')
+      .limit(limit - recommendations.length)
+      .lean();
+      
       recommendations = [...recommendations, ...fallback];
     }
 
-    // 4. Final Fallback: Just get any products
+    // 3. Final Fallback: Just get any products
     if (recommendations.length < limit) {
-      const viewedIds = exclude ? [exclude] : [];
+      const existingIds = recommendations.map(p => p._id);
+      if (exclude) existingIds.push(exclude);
+
       const filler = await Product.find({
-        _id: { $nin: [...recommendations.map(p => p._id), ...viewedIds] }
-      }).limit(limit - recommendations.length);
+        _id: { $nin: existingIds }
+      })
+      .select('name slug image price category rating numReviews countInStock badge variants')
+      .limit(limit - recommendations.length)
+      .lean();
+      
       recommendations = [...recommendations, ...filler];
     }
 
@@ -484,6 +448,34 @@ exports.toggleReviewHelpful = async (req, res) => {
   }
 };
 
+// Get Full Reviews with Media
+exports.getProductFullReviews = async (req, res) => {
+  try {
+    const product = await Product.findById(req.params.id)
+      .populate('reviews.user', 'name firstName')
+      .select('reviews')
+      .lean();
+      
+    if (!product) return res.status(404).json({ message: 'Product not found' });
+    
+    // Sort reviews by newest
+    const sortedReviews = (product.reviews || []).sort((a, b) => 
+      new Date(b.createdAt) - new Date(a.createdAt)
+    );
+
+    // Limit media per review for stability
+    const optimizedReviews = sortedReviews.map(r => ({
+      ...r,
+      images: r.images?.slice(0, 5) || [],
+      videos: r.videos?.slice(0, 2) || []
+    }));
+
+    res.json(optimizedReviews);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 // Get Public Reviews (All)
 exports.getPublicReviews = async (req, res) => {
   try {
@@ -491,7 +483,7 @@ exports.getPublicReviews = async (req, res) => {
       { $unwind: "$reviews" },
       { $match: { "reviews.isApproved": true } },
       { $sort: { "reviews.createdAt": -1 } },
-      { $limit: 50 },
+      { $limit: 30 }, // Reduced limit from 50
       {
         $project: {
           _id: 0,
@@ -499,7 +491,18 @@ exports.getPublicReviews = async (req, res) => {
           productName: "$name",
           productSlug: "$slug",
           productImage: "$image",
-          review: "$reviews"
+          review: {
+            _id: "$reviews._id",
+            name: "$reviews.name",
+            rating: "$reviews.rating",
+            comment: "$reviews.comment",
+            user: "$reviews.user",
+            isVerifiedPurchase: "$reviews.isVerifiedPurchase",
+            createdAt: "$reviews.createdAt",
+            // Limit media to first item to avoid massive payloads
+            images: { $slice: ["$reviews.images", 1] },
+            videos: { $slice: ["$reviews.videos", 1] }
+          }
         }
       }
     ]);
@@ -538,9 +541,20 @@ exports.getFeaturedReviews = async (req, res) => {
     // 3. Sort by newest and grab the top 12 using fast JS sort
     const sortedReviews = allReviews
       .sort((a, b) => new Date(b.review.createdAt) - new Date(a.review.createdAt))
-      .slice(0, 12);
+      .slice(0, 10); // Reduced from 12 to 10 for safety
 
-    res.json(sortedReviews);
+    // CRITICAL: Safety limit on media for featured reviews to prevent OOM
+    const optimizedReviews = sortedReviews.map(item => ({
+      ...item,
+      review: {
+        ...item.review,
+        // Only send first image/video for featured carousel
+        images: item.review.images?.slice(0, 1) || [],
+        videos: item.review.videos?.slice(0, 1) || []
+      }
+    }));
+
+    res.json(optimizedReviews);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -653,7 +667,18 @@ exports.getUserReviews = async (req, res) => {
     });
 
     console.log(`API: Found ${userReviews.length} reviews via JS Filter.`);
-    res.json(userReviews);
+
+    // Optimization: Slice media for user reviews
+    const optimizedReviews = userReviews.map(item => ({
+      ...item,
+      review: {
+        ...item.review,
+        images: item.review.images?.slice(0, 3) || [],
+        videos: item.review.videos?.slice(0, 1) || []
+      }
+    }));
+
+    res.json(optimizedReviews);
   } catch (error) {
     console.error("Error fetching user reviews:", error);
     res.status(500).json({ message: error.message });

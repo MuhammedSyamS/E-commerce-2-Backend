@@ -4,7 +4,8 @@ const User = require('../models/User');
 const isSameVariant = (v1, v2) => {
   if (!v1 && !v2) return true;
   if (!v1 || !v2) return false;
-  return v1.size === v2.size && v1.color === v2.color;
+  const normalize = (val) => String(val || '').trim().toLowerCase();
+  return normalize(v1.size) === normalize(v2.size) && normalize(v1.color) === normalize(v2.color);
 };
 
 // --- 1. ADD TO CART ---

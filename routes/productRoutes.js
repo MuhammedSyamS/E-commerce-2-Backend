@@ -68,6 +68,7 @@ router.get('/reviews/my-reviews', protect, getUserReviews);
  * @access  Public
  */
 router.get('/:id/variants', require('../controllers/productController').getProductVariants);
+router.get('/:id/reviews/full', require('../controllers/productController').getProductFullReviews);
 router.get('/:slug', getProductBySlug);
 
 // ADMIN / MANAGER ROUTES
