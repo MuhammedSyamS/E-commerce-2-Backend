@@ -167,15 +167,16 @@ exports.getHomeProducts = async (req, res) => {
     ]);
     
     // Fetch most recent custom-badged products (using badge field OR tags array)
+    // Optimized: Use a more index-friendly query and limit fields further
     const badgedProducts = await Product.find({ 
       $or: [
-        { badge: { $exists: true, $ne: null, $ne: '' } },
-        { "tags.0": { $exists: true } }
+        { badge: { $gt: '' } },
+        { tags: { $exists: true, $not: { $size: 0 } } }
       ]
     })
     .sort({ createdAt: -1 })
-    .limit(100)
-    .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
+    .limit(80) // Reduced limit for faster processing
+    .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller countInStock')
     .lean();
 
     const sectionsMap = new Map();

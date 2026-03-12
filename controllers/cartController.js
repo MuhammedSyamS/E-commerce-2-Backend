@@ -11,9 +11,12 @@ const isSameVariant = (v1, v2) => {
 const addToCart = async (req, res) => {
   try {
     const { productId, quantity, selectedVariant } = req.body;
-    const user = await User.findById(req.user._id);
+    if (!productId) return res.status(400).json({ message: "Product ID is required" });
 
-    // Clean up any null-product items (from re-seeds or deleted products)
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Clean up any null-product items
     user.cart = user.cart.filter(item => item.product != null);
 
     const itemIndex = user.cart.findIndex(item => {

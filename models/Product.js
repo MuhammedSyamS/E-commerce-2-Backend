@@ -68,6 +68,7 @@ productSchema.index({ viewCount: -1 });
 productSchema.index({ createdAt: -1 });
 productSchema.index({ price: 1 });
 productSchema.index({ name: 'text', tags: 'text' }); // For Keyword Search
+productSchema.index({ 'variants.size': 1, 'variants.color': 1 });
 productSchema.index({ badge: 1 });
 
 // ENFORCE STOCK CONSISTENCY

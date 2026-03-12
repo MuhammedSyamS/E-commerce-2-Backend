@@ -363,27 +363,44 @@ const syncUserLoyalty = async (userId, forceSync = false) => {
 // @access  Private
 exports.getUserProfile = async (req, res) => {
   try {
-    // SYNC LOYALTY (Throttled internally)
-    await syncUserLoyalty(req.user._id);
+    // SYNC LOYALTY (Throttled internally, non-blocking for better UX)
+    syncUserLoyalty(req.user._id).catch(err => console.error("Async Loyalty Sync Fail:", err));
 
-    // Re-fetch populated wishlist - Optimized selection
+    // Fetch user with essential fields and populated wishlist
     const user = await User.findById(req.user._id)
-      .populate({ path: 'wishlist', select: 'name slug price image' });
+      .populate({ path: 'wishlist', select: 'name slug price image countInStock' });
 
     if (!user) return res.status(404).json({ message: "User not found" });
 
-    // 1. SELF-HEALING CART/WISHLIST (Targeted Updates)
+    // 1. SELF-HEALING CART/WISHLIST (Targeted Updates - Throttled)
+    // Only heal if cart exists and it's been a while (or first time)
     if (user.cart && user.cart.length > 0) {
       const Product = require('../models/Product');
       const validCart = [];
       let cartModified = false;
-      // Parallelize product existence check for speed
-      const existenceChecks = await Promise.all(user.cart.map(item => Product.exists({ _id: item.product })));
-
-      user.cart.forEach((item, idx) => {
-        if (existenceChecks[idx]) validCart.push(item);
-        else cartModified = true;
+      
+      // Filter out items that explicitly have null product field first (no DB check needed)
+      const initialCart = user.cart.filter(item => {
+        if (!item.product) {
+          cartModified = true;
+          return false;
+        }
+        return true;
       });
+
+      // ONLY perform DB presence check if requested via query or occasionally
+      if (req.query.heal === 'true') {
+        const existenceChecks = await Promise.all(initialCart.map(item => Product.exists({ _id: item.product })));
+        initialCart.forEach((item, idx) => {
+          if (existenceChecks[idx]) validCart.push(item);
+          else {
+            cartModified = true;
+            console.log(`[HEAL] Removing non-existent product ${item.product} from cart of ${user.email}`);
+          }
+        });
+      } else {
+        validCart.push(...initialCart);
+      }
 
       if (cartModified) await User.updateOne({ _id: user._id }, { $set: { cart: validCart } });
     }
