@@ -174,7 +174,7 @@ app.get("/", (req, res) => {
 const buildPath = path.join(__dirname, "../client/dist");
 app.use(express.static(buildPath));
 
-app.get("(.*)", (req, res) => {
+app.get("/:path*", (req, res) => {
   if (!req.path.startsWith("/api")) {
     res.sendFile(path.join(buildPath, "index.html"));
   } else {
