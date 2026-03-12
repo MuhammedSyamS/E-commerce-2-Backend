@@ -169,6 +169,20 @@ app.get("/", (req, res) => {
 });
 
 // ============================
+// 🌍 SERVE FRONTEND (Catch-all for SPA)
+// ============================
+const buildPath = path.join(__dirname, "../client/dist");
+app.use(express.static(buildPath));
+
+app.get("*", (req, res) => {
+  if (!req.path.startsWith("/api")) {
+    res.sendFile(path.join(buildPath, "index.html"));
+  } else {
+    res.status(404).json({ message: "API Route Not Found" });
+  }
+});
+
+// ============================
 // 🌍 SOCKET.IO
 // ============================
 const io = new Server(server, {
