@@ -487,35 +487,27 @@ exports.toggleReviewHelpful = async (req, res) => {
 // Get Public Reviews (All)
 exports.getPublicReviews = async (req, res) => {
   try {
-    const products = await Product.find({ 'reviews.0': { $exists: true } });
-    let allReviews = [];
-
-    products.forEach(product => {
-      if (product.reviews && Array.isArray(product.reviews)) {
-        product.reviews.forEach(review => {
-          if (review.isApproved !== false) { // Only show approved/public reviews
-            allReviews.push({
-              _id: review._id,
-              productName: product.name,
-              productSlug: product.slug,
-              productImage: product.image,
-              review: review
-            });
-          }
-        });
+    const reviews = await Product.aggregate([
+      { $unwind: "$reviews" },
+      { $match: { "reviews.isApproved": true } },
+      { $sort: { "reviews.createdAt": -1 } },
+      { $limit: 50 },
+      {
+        $project: {
+          _id: 0,
+          productId: "$_id",
+          productName: "$name",
+          productSlug: "$slug",
+          productImage: "$image",
+          review: "$reviews"
+        }
       }
-    });
+    ]);
 
-    // Sort by Newest
-    allReviews.sort((a, b) => {
-      const dateA = new Date(a.review.createdAt || 0);
-      const dateB = new Date(b.review.createdAt || 0);
-      return dateB - dateA;
-    });
-
-    res.json(allReviews);
+    res.json(reviews);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    console.error("Public Reviews Error:", error);
+    res.status(500).json({ message: "Failed to fetch reviews" });
   }
 };
 
@@ -1015,54 +1007,65 @@ const triggerPriceDropAlerts = async (product) => {
 // @access  Public
 exports.getFilterData = async (req, res) => {
   try {
-    const categories = await Product.distinct('category');
-    const subcategories = await Product.distinct('subcategory');
-
-    // Robust extraction of sizes and colors from ALL products (variants + specs)
-    const allProducts = await Product.find({}).select('variants specs');
-    const sizes = new Set();
-    const colors = new Set();
-    const specsMap = {};
-
-    allProducts.forEach(p => {
-      // From Variants
-      if (p.variants && p.variants.length > 0) {
-        p.variants.forEach(v => {
-          if (v.size) sizes.add(v.size);
-          if (v.color) colors.add(v.color);
-        });
+    const results = await Product.aggregate([
+      {
+        $facet: {
+          categories: [{ $group: { _id: "$category" } }],
+          subcategories: [{ $group: { _id: "$subcategory" } }],
+          variantSizes: [
+            { $unwind: "$variants" },
+            { $group: { _id: "$variants.size" } }
+          ],
+          variantColors: [
+            { $unwind: "$variants" },
+            { $group: { _id: "$variants.color" } }
+          ],
+          specSizes: [
+            { $unwind: "$specs" },
+            { $match: { "specs.key": { $regex: /size|dimension/i } } },
+            { $group: { _id: "$specs.value" } }
+          ],
+          specColors: [
+            { $unwind: "$specs" },
+            { $match: { "specs.key": { $regex: /color|shade|finish/i } } },
+            { $group: { _id: "$specs.value" } }
+          ],
+          allSpecs: [
+            { $unwind: "$specs" },
+            { $group: { _id: "$specs.key", values: { $addToSet: "$specs.value" } } }
+          ]
+        }
       }
-      
-      // From Specs
-      if (p.specs && p.specs.length > 0) {
-        p.specs.forEach(s => {
-          const key = s.key.toLowerCase();
-          const val = s.value;
-          if (key === 'size' || key === 'dimension' || key === 'dimensions' || key === 'size/dimension') sizes.add(val);
-          if (key === 'color' || key === 'shade' || key === 'finish') colors.add(val);
-          
-          if (!specsMap[s.key]) specsMap[s.key] = new Set();
-          specsMap[s.key].add(val);
-        });
-      }
-    });
+    ]);
+
+    const data = results[0];
+    const sizes = new Set([
+      ...data.variantSizes.map(v => v._id),
+      ...data.specSizes.map(v => v._id)
+    ].filter(Boolean));
+    
+    const colors = new Set([
+      ...data.variantColors.map(v => v._id),
+      ...data.specColors.map(v => v._id)
+    ].filter(Boolean));
 
     const specs = {};
-    Object.keys(specsMap).forEach(key => {
-      // Don't duplicate color/size in dynamic specs if they are already in their own sections
+    data.allSpecs.forEach(item => {
+      const key = item._id;
       const lowerKey = key.toLowerCase();
       if (['color', 'shade', 'finish', 'size', 'dimension', 'dimensions'].includes(lowerKey)) return;
-      specs[key] = Array.from(specsMap[key]).sort();
+      specs[key] = item.values.sort();
     });
 
     res.json({
-      categories: ['All', ...categories.filter(c => c !== 'All')].slice(0, 15),
-      subcategories: subcategories.filter(Boolean),
+      categories: ['All', ...data.categories.map(c => c._id).filter(c => c && c !== 'All')].slice(0, 15),
+      subcategories: data.subcategories.map(s => s._id).filter(Boolean),
       sizes: Array.from(sizes).sort(),
       colors: Array.from(colors).sort(),
       specs
     });
   } catch (error) {
+    console.error("Filter Aggregation Error:", error);
     res.status(500).json({ message: "Failed to fetch filter data" });
   }
 };

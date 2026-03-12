@@ -39,27 +39,10 @@ const getAllLooks = async (req, res) => {
     try {
         const looks = await Look.find({ status: 'approved' })
             .populate('user', 'firstName lastName email avatar membershipTier')
-            .sort({ createdAt: -1 });
+            .sort({ createdAt: -1 })
+            .lean();
 
-        // SELF-HEALING: Populate/Refresh denormalized userName
-        const processedLooks = await Promise.all(looks.map(async (look) => {
-            const lookObj = look.toObject();
-            if (look.user) {
-                // Refresh name from user object to ensure it's up to date
-                const currentName = `${look.user.firstName} ${look.user.lastName}`.trim();
-                if (look.userName !== currentName) {
-                    await Look.updateOne({ _id: look._id }, { $set: { userName: currentName } });
-                    lookObj.userName = currentName;
-                }
-            } else if (!look.userName) {
-                // Only use fallback if user is deleted AND no userName was ever saved
-                await Look.updateOne({ _id: look._id }, { $set: { userName: "House Stylist" } });
-                lookObj.userName = "House Stylist";
-            }
-            return lookObj;
-        }));
-
-        res.json(processedLooks);
+        res.json(looks);
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
