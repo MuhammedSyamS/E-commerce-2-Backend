@@ -514,22 +514,33 @@ exports.getPublicReviews = async (req, res) => {
 // Get Featured Reviews (Top rated from all products)
 exports.getFeaturedReviews = async (req, res) => {
   try {
-    const reviews = await Product.aggregate([
-      { $unwind: "$reviews" },
-      // { $match: { "reviews.rating": { $gte: 4 } } }, // REMOVED FILTER so all reviews show
-      { $sort: { "reviews.createdAt": -1 } }, // Newest first
-      { $limit: 12 },
-      {
-        $project: {
-          _id: 0,
-          productName: "$name",
-          productSlug: "$slug",
-          productImage: "$image",
-          review: "$reviews"
-        }
+    // 1. Fetch ONLY products that have reviews, and ONLY select their necessary fields
+    const products = await Product.find({ numReviews: { $gt: 0 } })
+      .select('name slug image reviews')
+      .lean(); // CRITICAL: Lean makes this blazing fast
+
+    // 2. Flatten reviews in fast Node.js memory instead of slow MongoDB $unwind
+    let allReviews = [];
+    products.forEach(product => {
+      // Safely check if reviews exist (schema fallback)
+      if (Array.isArray(product.reviews)) {
+        product.reviews.forEach(review => {
+          allReviews.push({
+            productName: product.name,
+            productSlug: product.slug,
+            productImage: product.image,
+            review: review
+          });
+        });
       }
-    ]);
-    res.json(reviews);
+    });
+
+    // 3. Sort by newest and grab the top 12 using fast JS sort
+    const sortedReviews = allReviews
+      .sort((a, b) => new Date(b.review.createdAt) - new Date(a.review.createdAt))
+      .slice(0, 12);
+
+    res.json(sortedReviews);
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

@@ -50,7 +50,10 @@ const siteSettingsSchema = new mongoose.Schema({
     topNavbarMessages: [{
         text: { type: String, required: true },
         link: { type: String, default: '' }
-    }]
+    }],
+
+    // Marquee Section
+    marqueeText: { type: String, default: '' }
 
 }, { timestamps: true });
 

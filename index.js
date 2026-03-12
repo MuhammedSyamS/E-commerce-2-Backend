@@ -110,6 +110,22 @@ app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.get("/api/health", (req, res) => res.status(200).json({ status: "ok", timestamp: new Date() }));
 
 // ============================
+// ⏱️ PERFORMANCE MONITORING
+// ============================
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    if (duration > 500) {
+      logger.warn(`🐌 SLOW REQUEST | ${req.method} ${req.originalUrl} | ${duration}ms`);
+    } else {
+       logger.info(`⚡ REQUEST | ${req.method} ${req.originalUrl} | ${duration}ms`);
+    }
+  });
+  next();
+});
+
+// ============================
 // 📦 ROUTES
 // ============================
 app.use("/api/users", require("./routes/authRoutes"));
