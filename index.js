@@ -102,7 +102,7 @@ app.use(
 );
 
 // ============================
-// 📂 STATIC FILES
+// 📂 STATIC FILES (UPLOADS)
 // ============================
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
@@ -164,7 +164,10 @@ app.get("/api/health", (req, res) => {
 // ============================
 // 🌍 SERVE FRONTEND (Catch-all for SPA)
 // ============================
-const buildPath = path.join(__dirname, "../client/dist");
+// Support for monorepo structure on Render
+const buildPath = path.resolve(__dirname, "../client/dist");
+
+// Serve static assets from the React build
 app.use(express.static(buildPath));
 
 // API 404 handler (Specialized for API)
@@ -172,13 +175,19 @@ app.use("/api", (req, res) => {
   res.status(404).json({ message: `API route ${req.originalUrl} not found` });
 });
 
-// React SPA Catch-all
-app.use((req, res, next) => {
-  const file = path.join(buildPath, "index.html");
-  res.sendFile(file, (err) => {
+// React SPA Catch-all (Non-API GET requests)
+app.get("*", (req, res, next) => {
+  // Ignore API calls (already handled above, but as a safety)
+  if (req.url.startsWith('/api')) return next();
+
+  const indexFile = path.join(buildPath, "index.html");
+  res.sendFile(indexFile, (err) => {
     if (err) {
-      logger.error("SPA Catch-all Error:", err.message);
-      next(err);
+      // Log failure but don't crash
+      console.error(`❌ SPA Catch-all Failed: ${req.url} | Path: ${indexFile} | Error: ${err.message}`);
+      
+      // Fallback: If in Dev, maybe it's missing. In Prod, this is a real issue.
+      next(); 
     }
   });
 });
