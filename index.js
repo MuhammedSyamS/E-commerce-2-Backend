@@ -162,13 +162,6 @@ app.get("/api/health", (req, res) => {
 });
 
 // ============================
-// 🌐 BASE ROUTE
-// ============================
-app.get("/", (req, res) => {
-  res.status(200).send("SLOOK API Running");
-});
-
-// ============================
 // 🌍 SERVE FRONTEND (Catch-all for SPA)
 // ============================
 const buildPath = path.join(__dirname, "../client/dist");
@@ -180,8 +173,14 @@ app.use("/api", (req, res) => {
 });
 
 // React SPA Catch-all
-app.use((req, res) => {
-  res.sendFile(path.join(buildPath, "index.html"));
+app.use((req, res, next) => {
+  const file = path.join(buildPath, "index.html");
+  res.sendFile(file, (err) => {
+    if (err) {
+      logger.error("SPA Catch-all Error:", err.message);
+      next(err);
+    }
+  });
 });
 
 // ============================

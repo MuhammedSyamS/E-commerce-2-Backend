@@ -11,6 +11,7 @@ exports.searchProducts = async (req, res) => {
     const products = await Product.find({
       $or: [
         { name: { $regex: keyword, $options: 'i' } },
+        { description: { $regex: keyword, $options: 'i' } },
         { tags: { $regex: keyword, $options: 'i' } }
       ]
     })
@@ -21,8 +22,9 @@ exports.searchProducts = async (req, res) => {
     const scoredProducts = products.map(p => {
       let score = 0;
       if (p.name.toLowerCase().includes(keyword.toLowerCase())) score += 10;
-      if (p.tags && p.tags.some(t => t.toLowerCase().includes(keyword.toLowerCase()))) score += 5;
-      return { ...p.toObject(), searchScore: score };
+      if (p.description?.toLowerCase().includes(keyword.toLowerCase())) score += 5;
+      if (p.tags && p.tags.some(t => t.toLowerCase().includes(keyword.toLowerCase()))) score += 3;
+      return { ...p, searchScore: score };
     }).sort((a, b) => b.searchScore - a.searchScore).slice(0, 5);
 
     // 2. Extract Matching Categories
