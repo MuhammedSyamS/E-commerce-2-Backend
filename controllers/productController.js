@@ -232,7 +232,14 @@ exports.getHomeProducts = async (req, res) => {
       })
       .filter(section => section.items.length > 0); // Only return sections with items
 
-    res.json({ newArrivals, bestSellers, dynamicSections });
+    // 3. Trending Now (Top viewed products)
+    const trending = await Product.find({})
+      .sort({ viewCount: -1 })
+      .limit(10)
+      .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
+      .lean();
+
+    res.json({ newArrivals, bestSellers, dynamicSections, trending });
   } catch (error) {
     console.error("Home Data Fetch Error:", error);
     res.status(500).json({ message: "Failed to load home data" });
