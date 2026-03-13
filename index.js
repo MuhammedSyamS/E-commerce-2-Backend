@@ -176,17 +176,18 @@ app.use("/api", (req, res) => {
 });
 
 // React SPA Catch-all (Non-API GET requests)
-app.get("*", (req, res, next) => {
-  // Ignore API calls (already handled above, but as a safety)
-  if (req.url.startsWith('/api')) return next();
+app.use((req, res, next) => {
+  // Only handle GET requests that don't start with /api
+  if (req.method !== 'GET' || req.originalUrl.startsWith('/api')) {
+    return next();
+  }
 
   const indexFile = path.join(buildPath, "index.html");
   res.sendFile(indexFile, (err) => {
     if (err) {
-      // Log failure but don't crash
-      console.error(`❌ SPA Catch-all Failed: ${req.url} | Path: ${indexFile} | Error: ${err.message}`);
-      
-      // Fallback: If in Dev, maybe it's missing. In Prod, this is a real issue.
+      // If index.html is missing, we shouldn't keep trying to serve it for every request
+      // We pass the error to the global handler
+      console.error(`❌ SPA Catch-all Failed: ${req.originalUrl} | Path: ${indexFile} | Error: ${err.message}`);
       next(); 
     }
   });
