@@ -525,15 +525,17 @@ exports.getPublicReviews = async (req, res) => {
 // Get Featured Reviews (Top rated from all products)
 exports.getFeaturedReviews = async (req, res) => {
   try {
-    // 1. Fetch ONLY products that have reviews, and ONLY select their necessary fields
+    // 1. Fetch only 50 most recently updated products with reviews
+    // This dramatically reduces memory footprint compared to fetching all products
     const products = await Product.find({ numReviews: { $gt: 0 } })
+      .sort({ updatedAt: -1 })
+      .limit(50)
       .select('name slug image reviews')
-      .lean(); // CRITICAL: Lean makes this blazing fast
+      .lean();
 
-    // 2. Flatten reviews in fast Node.js memory instead of slow MongoDB $unwind
+    // 2. Flatten reviews in memory
     let allReviews = [];
     products.forEach(product => {
-      // Safely check if reviews exist (schema fallback)
       if (Array.isArray(product.reviews)) {
         product.reviews.forEach(review => {
           allReviews.push({
@@ -546,17 +548,16 @@ exports.getFeaturedReviews = async (req, res) => {
       }
     });
 
-    // 3. Sort by newest and grab the top 12 using fast JS sort
+    // 3. Sort by newest and grab the top 10
     const sortedReviews = allReviews
       .sort((a, b) => new Date(b.review.createdAt) - new Date(a.review.createdAt))
-      .slice(0, 10); // Reduced from 12 to 10 for safety
+      .slice(0, 10);
 
-    // CRITICAL: Safety limit on media for featured reviews to prevent OOM
+    // 4. Optimize media payload
     const optimizedReviews = sortedReviews.map(item => ({
       ...item,
       review: {
         ...item.review,
-        // Only send first image/video for featured carousel
         images: item.review.images?.slice(0, 1) || [],
         videos: item.review.videos?.slice(0, 1) || []
       }
