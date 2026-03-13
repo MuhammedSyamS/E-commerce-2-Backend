@@ -175,12 +175,12 @@ const buildPath = path.join(__dirname, "../client/dist");
 app.use(express.static(buildPath));
 
 // API 404 handler (Specialized for API)
-app.use("/api/*", (req, res) => {
+app.use("/api", (req, res) => {
   res.status(404).json({ message: `API route ${req.originalUrl} not found` });
 });
 
 // React SPA Catch-all
-app.get("*", (req, res) => {
+app.use((req, res) => {
   res.sendFile(path.join(buildPath, "index.html"));
 });
 

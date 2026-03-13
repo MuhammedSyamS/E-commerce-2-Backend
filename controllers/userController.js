@@ -406,10 +406,8 @@ exports.getUserProfile = async (req, res) => {
       if (cartModified) await User.updateOne({ _id: user._id }, { $set: { cart: validCart } });
     }
 
-    const userData = user.toObject();
-    delete userData.password;
-    delete userData.otp;
-    delete userData.otpExpires;
+    // Clean up sensitive fields
+    const { password, otp, otpExpires, ...userData } = user;
 
     res.json(userData);
   } catch (error) {

@@ -67,6 +67,7 @@ router.get('/reviews/my-reviews', protect, getUserReviews);
  * @desc    Fetch single product by slug or ID
  * @access  Public
  */
+router.get('/filters', require('../controllers/productController').getFilterData);
 router.get('/:id/variants', require('../controllers/productController').getProductVariants);
 router.get('/:id/reviews/full', require('../controllers/productController').getProductFullReviews);
 router.get('/:slug', getProductBySlug);
@@ -134,7 +135,6 @@ router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
 router.put('/:id/reviews/:reviewId/toggle', protect, hasPermission('manage_reviews'), require('../controllers/productController').toggleReviewVisibility);
 router.put('/:id/reviews/:reviewId/reply', protect, hasPermission('manage_reviews'), require('../controllers/productController').replyToReview);
 router.put('/:id/reviews/:reviewId/helpful', protect, require('../controllers/productController').toggleReviewHelpful);
-router.get('/filters', require('../controllers/productController').getFilterData); // NEW
-router.post('/:id/waitlist', require('../controllers/productController').subscribeWaitlist); // NEW
+router.post('/:id/waitlist', require('../controllers/productController').subscribeWaitlist);
 
 module.exports = router;

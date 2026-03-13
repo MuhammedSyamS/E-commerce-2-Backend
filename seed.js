@@ -81,7 +81,7 @@ const products = [
     slug: "minimalist-desk-lamp",
     price: 1899,
     category: "Home",
-    image: "https://images.unsplash.com/photo-1507473888900-52e1adad54cd?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1534073828943-f801091bb18c?auto=format&fit=crop&q=80&w=800",
     isBestSeller: false,
     isNewArrival: true,
     description: "Sleek LED desk lamp with adjustable brightness and color temperature.",
@@ -98,7 +98,7 @@ const products = [
     description: "Hand-glazed ceramic pot, perfect for indoor plants.",
     countInStock: 80
   },
-
+ 
   // --- ACCESSORIES ---
   {
     name: "Leather Laptop Backpack",
@@ -127,7 +127,7 @@ const products = [
     slug: "silver-signet-ring",
     price: 3999,
     category: "Accessories",
-    image: "https://images.unsplash.com/photo-1627225924765-552d49cf47ad?auto=format&fit=crop&q=80&w=800",
+    image: "https://images.unsplash.com/photo-1611085583191-a3b1a30a218f?auto=format&fit=crop&q=80&w=800",
     isBestSeller: true,
     isNewArrival: true,
     description: "Minimalist stainless steel ring for a modern look.",
