@@ -189,22 +189,25 @@ exports.getHomeProducts = async (req, res) => {
     if (badgedProducts && badgedProducts.length > 0) {
       badgedProducts.forEach(p => {
         // 1. Group by dedicated 'badge' field (Primary)
-        if (p.badge) {
-          const tag = p.badge;
+        const badge = p.badge?.trim();
+        if (badge) {
           // Skip if the badge is just reinforcing the core sections
-          if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller') {
+          if (badge.toLowerCase() === 'new arrival' || badge.toLowerCase() === 'best seller') {
             // Do nothing, already handled by core sections
           } else {
-            if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
-            if (sectionsMap.get(tag).length < 10 && !sectionsMap.get(tag).find(item => item._id.toString() === p._id.toString())) {
-              sectionsMap.get(tag).push(p);
+            if (!sectionsMap.has(badge)) sectionsMap.set(badge, []);
+            if (sectionsMap.get(badge).length < 10 && !sectionsMap.get(badge).find(item => item._id.toString() === p._id.toString())) {
+              sectionsMap.get(badge).push(p);
             }
           }
         }
         
         // 2. Group by custom tags (Secondary fallback)
-        if (p.tags && p.tags.length > 0) {
-          p.tags.forEach(tag => {
+        if (Array.isArray(p.tags) && p.tags.length > 0) {
+          p.tags.forEach(t => {
+             const tag = t?.trim();
+             if (!tag) return;
+
              // Skip if the tag is just reinforcing the core sections
              if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller') return;
              
@@ -221,8 +224,8 @@ exports.getHomeProducts = async (req, res) => {
       .map(([title, items]) => {
         // Deduplicate: remove items that are already in newArrivals or bestSellers
         const filteredItems = items.filter(item => 
-          !newArrivals.find(na => na._id.toString() === item._id.toString()) &&
-          !bestSellers.find(bs => bs._id.toString() === item._id.toString())
+          !newArrivals.some(na => na._id.toString() === item._id.toString()) &&
+          !bestSellers.some(bs => bs._id.toString() === item._id.toString())
         );
         return {
           id: title.toLowerCase().replace(/\s+/g, '-'),
@@ -239,10 +242,15 @@ exports.getHomeProducts = async (req, res) => {
       .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
       .lean();
 
-    res.json({ newArrivals, bestSellers, dynamicSections, trending });
+    res.json({ 
+      newArrivals: newArrivals || [], 
+      bestSellers: bestSellers || [], 
+      dynamicSections: dynamicSections || [], 
+      trending: trending || [] 
+    });
   } catch (error) {
-    console.error("Home Data Fetch Error:", error);
-    res.status(500).json({ message: "Failed to load home data" });
+    logger.error("Home Data Fetch Critical Failure:", { error: error.message, stack: error.stack });
+    res.status(500).json({ message: "Internal server error while loading home data" });
   }
 };
 
