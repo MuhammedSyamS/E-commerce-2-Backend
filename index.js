@@ -217,9 +217,45 @@ io.on("connection", (socket) => {
     socket.join(userId);
     logger.info(`Socket ${socket.id} joined room: ${userId}`);
   });
+
+  // --- LIVE CHAT EVENTS ---
+  socket.on('send-message', async (data) => {
+    try {
+      const User = require('./models/User');
+      const ChatMessage = require('./models/ChatMessage');
+
+      // Check if chat is enabled (only for customers)
+      if (!data.isAdmin) {
+        const user = await User.findById(data.userId);
+        if (!user || !user.chatEnabledUntil || new Date() > user.chatEnabledUntil) {
+          return socket.emit('chat-error', { message: 'Chat session expired or not active' });
+        }
+      }
+
+      const msg = await ChatMessage.create({
+        user: data.userId,
+        sender: data.senderId,
+        message: data.message,
+        isAdmin: data.isAdmin || false
+      });
+
+      // Emit to specific user room and admin room
+      io.to(data.userId).emit('receive-message', msg);
+      io.emit('admin-receive-message', msg); // Notify all connected admins
+    } catch (err) {
+      logger.error('Chat Error:', err.message);
+    }
+  });
+
+  socket.on('typing', (data) => {
+    io.to(data.userId).emit('user-typing', data);
+  });
 });
 
 app.set("socketio", io);
+
+// Add Chat Routes
+app.use("/api/chat", require("./routes/chatRoutes"));
 
 // ============================
 // 🛡️ GLOBAL ERROR HANDLING

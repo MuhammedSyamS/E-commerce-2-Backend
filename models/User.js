@@ -88,7 +88,9 @@ const userSchema = new mongoose.Schema({
   avatar: { type: String },
   // OTP FOR SECURITY
   otp: { type: String },
-  otpExpires: { type: Date }
+  otpExpires: { type: Date },
+  // CHAT SESSION
+  chatEnabledUntil: { type: Date }
 }, { timestamps: true });
 
 userSchema.pre('save', async function () {

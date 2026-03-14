@@ -253,14 +253,24 @@ exports.updateTicket = async (req, res) => {
                     data: { url: '/support', ticketId: ticket._id }
                 });
 
+                // UNLOCK CHAT FOR 5 MINUTES
+                const User = require('../models/User');
+                await User.findByIdAndUpdate(ticket.user._id, {
+                    chatEnabledUntil: new Date(Date.now() + 5 * 60 * 1000)
+                });
+
                 const io = req.app.get('socketio');
                 if (io) {
                     io.to(ticket.user._id.toString()).emit('ticket-reply', {
                         ticketId: ticket._id,
                         subject: ticket.subject,
-                        message: adminResponse
+                        message: adminResponse,
+                        chatEnabledUntil: new Date(Date.now() + 5 * 60 * 1000)
                     });
                     io.to(ticket.user._id.toString()).emit('notification', notification);
+                    io.to(ticket.user._id.toString()).emit('chat-enabled', {
+                        enabledUntil: new Date(Date.now() + 5 * 60 * 1000)
+                    });
                 }
             } catch (notifErr) {
                 console.error("❌ Notification Error:", notifErr.message);
