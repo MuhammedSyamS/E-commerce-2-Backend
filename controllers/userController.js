@@ -94,17 +94,36 @@ exports.getWishlist = async (req, res) => {
 // @route   POST /api/users/google-login
 // @access  Public
 exports.googleLogin = async (req, res) => {
+  const vault = require('../config/vault');
   try {
     const { token } = req.body;
-    const { OAuth2Client } = require('google-auth-library');
-    const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+    if (!token) {
+      return res.status(400).json({ message: "Google ID Token is required." });
+    }
 
+    const { OAuth2Client } = require('google-auth-library');
+    const googleClientId = vault.GOOGLE_CLIENT_ID;
+    
+    if (!googleClientId) {
+      logger.error("Google Login Error: GOOGLE_CLIENT_ID is missing from configuration.");
+      return res.status(500).json({ message: "Server configuration error. Please contact support." });
+    }
+
+    const client = new OAuth2Client(googleClientId);
+
+    logger.debug("Verifying Google ID Token...");
     const ticket = await client.verifyIdToken({
       idToken: token,
-      audience: process.env.GOOGLE_CLIENT_ID
+      audience: googleClientId
     });
 
-    const { name, email, picture, sub: googleId } = ticket.getPayload();
+    const payload = ticket.getPayload();
+    if (!payload) {
+      throw new Error("Failed to get payload from Google Ticket");
+    }
+
+    const { name, email, picture, sub: googleId } = payload;
+    logger.info(`Google Login Attempt for email: ${email}`);
 
     // Check if user exists (by googleId OR email)
     let user = await User.findOne({ $or: [{ googleId }, { email }] });
@@ -112,11 +131,13 @@ exports.googleLogin = async (req, res) => {
     if (user) {
       // Connect Google ID if not already connected (e.g. detailed email match)
       if (!user.googleId) {
+        logger.info(`Connecting existing user ${email} with Google ID ${googleId}`);
         user.googleId = googleId;
         if (!user.avatar) user.avatar = picture;
         await user.save();
       }
     } else {
+      logger.info(`Creating new user for ${email} through Google Register`);
       // Create New User
       // Generate random password
       const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
@@ -150,14 +171,15 @@ exports.googleLogin = async (req, res) => {
     res.json(userData);
 
   } catch (error) {
-    console.error("Google Login Backend Exception:", {
+    logger.error("Google Login Backend Exception:", {
       message: error.message,
       stack: error.stack,
-      clientId: process.env.GOOGLE_CLIENT_ID ? "PRESENT" : "MISSING"
+      clientIdPresent: !!vault.GOOGLE_CLIENT_ID
     });
+    
     res.status(400).json({ 
       message: "Google Login Failed", 
-      details: error.message 
+      details: process.env.NODE_ENV === 'development' ? error.message : "Authentication error"
     });
   }
 };
