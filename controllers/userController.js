@@ -177,9 +177,13 @@ exports.googleLogin = async (req, res) => {
       clientIdPresent: !!vault.GOOGLE_CLIENT_ID
     });
     
+    const clientIdHint = vault.GOOGLE_CLIENT_ID 
+      ? `${vault.GOOGLE_CLIENT_ID.substring(0, 5)}...${vault.GOOGLE_CLIENT_ID.slice(-5)}` 
+      : "MISSING";
+
     res.status(400).json({ 
       message: "Google Login Failed", 
-      details: error.message 
+      details: `${error.message} (Configured ID: ${clientIdHint})`
     });
   }
 };
