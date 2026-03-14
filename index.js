@@ -177,9 +177,6 @@ app.get("/api/health", (req, res) => {
 // ============================
 // 🌍 SERVE FRONTEND (Catch-all for SPA)
 // ============================
-// Support for monorepo structure on Render
-buildPath = path.resolve(__dirname, "../client/dist");
-
 // Serve static assets from the React build
 app.use(express.static(buildPath));
 
