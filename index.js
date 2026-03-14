@@ -16,13 +16,25 @@ const vault = require("./config/vault");
 // ============================
 // 🔐 ENV VALIDATION (Fail Fast)
 // ============================
-const requiredEnv = ["MONGO_URI", "JWT_SECRET"];
+const requiredEnv = ["MONGO_URI", "JWT_SECRET", "GOOGLE_CLIENT_ID"];
 requiredEnv.forEach((key) => {
-  if (!vault[key] && !process.env[key]) {
+  const val = vault[key] || process.env[key];
+  if (!val) {
     logger.error(`❌ Missing required environment variable: ${key}`);
     process.exit(1);
   }
+  // Log presence without value for security
+  logger.info(`Vault check: ${key} is ${val ? 'PRESENT' : 'MISSING'}`);
 });
+
+// Build path validation
+const buildPath = path.resolve(__dirname, "../client/dist");
+const fs = require('fs');
+if (!fs.existsSync(path.join(buildPath, "index.html"))) {
+  logger.warn(`⚠️ FRONTEND BUILD MISSING: ${buildPath}/index.html not found!`);
+} else {
+  logger.info(`✅ Frontend build found at: ${buildPath}`);
+}
 
 // ============================
 // 🚀 CREATE APP & SERVER
@@ -166,7 +178,7 @@ app.get("/api/health", (req, res) => {
 // 🌍 SERVE FRONTEND (Catch-all for SPA)
 // ============================
 // Support for monorepo structure on Render
-const buildPath = path.resolve(__dirname, "../client/dist");
+buildPath = path.resolve(__dirname, "../client/dist");
 
 // Serve static assets from the React build
 app.use(express.static(buildPath));
