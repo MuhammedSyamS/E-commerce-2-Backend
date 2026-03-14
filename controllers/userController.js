@@ -179,7 +179,7 @@ exports.googleLogin = async (req, res) => {
     
     res.status(400).json({ 
       message: "Google Login Failed", 
-      details: process.env.NODE_ENV === 'development' ? error.message : "Authentication error"
+      details: error.message 
     });
   }
 };
