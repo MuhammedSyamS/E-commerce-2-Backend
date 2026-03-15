@@ -1,6 +1,6 @@
-const Look = require('../models/Look');
 const fs = require('fs');
 const path = require('path');
+const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
 
 // @desc    Create a new look
 // @route   POST /api/looks
@@ -13,12 +13,15 @@ const createLook = async (req, res) => {
             return res.status(400).json({ message: 'Please upload an image' });
         }
 
+        // Upload to Cloudinary
+        const cloudinaryResult = await uploadToCloudinary(req.file.buffer, 'looks');
+
         const parsedProducts = JSON.parse(products);
 
         const look = new Look({
             user: req.user._id,
             userName: `${req.user.firstName} ${req.user.lastName}`.trim(),
-            image: `/uploads/${req.file.filename}`,
+            image: cloudinaryResult.secure_url,
             caption,
             products: parsedProducts,
             status: 'pending' // Requires admin approval before display
@@ -101,11 +104,12 @@ const deleteLook = async (req, res) => {
             return res.status(401).json({ message: 'Not authorized' });
         }
 
-        // Delete file from filesystem
-        const filePath = path.join(__dirname, '..', look.image);
-        if (fs.existsSync(filePath)) {
-            fs.unlinkSync(filePath);
+        // --- CLOUDINARY CLEANUP ---
+        const publicId = extractPublicId(look.image);
+        if (publicId) {
+            await deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Look):", err));
         }
+        // -------------------------
 
         await Look.deleteOne({ _id: req.params.id });
         res.json({ message: 'Look removed' });

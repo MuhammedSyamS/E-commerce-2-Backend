@@ -1,5 +1,6 @@
-const User = require('../models/User');
 const logger = require('../utils/logger');
+const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const User = require('../models/User');
 
 logger.info("UserController loaded");
 
@@ -934,6 +935,43 @@ exports.getLoyaltyHistory = async (req, res) => {
   } catch (error) {
     console.error('Loyalty History Error:', error);
     res.status(500).json({ message: 'Failed to fetch loyalty history' });
+  }
+};
+
+// @desc    Update user avatar
+// @route   POST /api/users/profile/avatar
+// @access  Private
+exports.updateAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    // 1. Cleanup old custom avatar if exists
+    if (user.avatar && user.avatar.includes('cloudinary.com')) {
+      const oldPublicId = extractPublicId(user.avatar);
+      if (oldPublicId) {
+        deleteFromCloudinary(oldPublicId).catch(err => console.error("Cloudinary Delete Error (Avatar):", err));
+      }
+    }
+
+    // 2. Upload new avatar
+    const result = await uploadToCloudinary(req.file.buffer, 'avatars');
+    
+    // 3. Update User
+    user.avatar = result.secure_url;
+    await user.save();
+
+    res.json({
+      message: 'Avatar updated successfully',
+      avatar: user.avatar
+    });
+  } catch (error) {
+    console.error('Update Avatar Error:', error);
+    res.status(500).json({ message: 'Failed to update avatar' });
   }
 };
 

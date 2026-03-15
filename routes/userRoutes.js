@@ -17,8 +17,8 @@ router.post('/cards', protect, addCard);
 router.delete('/cards/:id', protect, removeCard);
 
 // Profile
-router.get('/profile', protect, require('../controllers/userController').getUserProfile); // Added Sync Route
 router.put('/profile', protect, updateProfile);
+router.post('/profile/avatar', protect, multer({ storage: multer.memoryStorage() }).single('file'), userController.updateAvatar);
 router.get('/referrals', protect, require('../controllers/userController').getReferralStats);
 router.get('/loyalty-history', protect, require('../controllers/userController').getLoyaltyHistory);
 

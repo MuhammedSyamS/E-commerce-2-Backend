@@ -16,18 +16,7 @@ const {
 } = require('../controllers/lookController');
 
 // Multer Storage Configuration
-const storage = multer.diskStorage({
-    destination(req, file, cb) {
-        const uploadDir = path.join(__dirname, '../uploads');
-        if (!fs.existsSync(uploadDir)) {
-            fs.mkdirSync(uploadDir, { recursive: true });
-        }
-        cb(null, uploadDir);
-    },
-    filename(req, file, cb) {
-        cb(null, `look-${Date.now()}${path.extname(file.originalname)}`);
-    },
-});
+const storage = multer.memoryStorage();
 
 const upload = multer({
     storage,

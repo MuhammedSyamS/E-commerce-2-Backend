@@ -1,6 +1,7 @@
 const Product = require('../models/Product');
 const { logStockChange } = require('../utils/stockUtils');
 const logger = require('../utils/logger');
+const { deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
 
 exports.searchProducts = async (req, res) => {
   try {
@@ -596,11 +597,25 @@ exports.deleteProductReview = async (req, res) => {
     // Remove review
     product.reviews = product.reviews.filter(r => r._id.toString() !== req.params.reviewId);
 
-    // Recalculate stats
-    product.numReviews = product.reviews.length;
-    product.rating = product.reviews.length > 0
-      ? (product.reviews.reduce((acc, item) => item.rating + acc, 0) / product.reviews.length)
-      : 0;
+    // --- CLOUDINARY CLEANUP ---
+    if (review.images && review.images.length > 0) {
+      review.images.forEach(img => {
+        const publicId = extractPublicId(img);
+        if (publicId) {
+          deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Review Img):", err));
+        }
+      });
+    }
+
+    if (review.videos && review.videos.length > 0) {
+      review.videos.forEach(vid => {
+        const publicId = extractPublicId(vid);
+        if (publicId) {
+          deleteFromCloudinary(publicId, 'video').catch(err => console.error("Cloudinary Delete Error (Review Vid):", err));
+        }
+      });
+    }
+    // -------------------------
 
     await product.save();
     res.status(200).json({ message: 'Review deleted successfully' });
@@ -793,22 +808,32 @@ exports.updateProduct = async (req, res) => {
       product.name = name || product.name;
       product.price = price || product.price;
       product.description = description || product.description;
-      product.image = image || product.image;
-      product.images = images || product.images;
-      product.category = category || product.category;
-      product.countInStock = (countInStock !== undefined && countInStock !== '') ? Number(countInStock) : product.countInStock;
-
-      // ... other fields ...
-      product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
-      product.isNewArrival = isNewArrival !== undefined ? isNewArrival : product.isNewArrival;
-      product.discountPrice = discountPrice !== undefined ? discountPrice : product.discountPrice;
-      product.specs = specs !== undefined ? specs : product.specs;
-      product.tags = tags !== undefined ? tags.filter(t => t && t.trim()).map(t => t.trim()) : product.tags;
-      product.badge = badge !== undefined ? badge : product.badge;
-      product.video = video || product.video;
-      product.variants = variants || product.variants;
       product.seo = seo || product.seo;
       product.richDescription = richDescription || product.richDescription;
+
+      // --- CLOUDINARY CLEANUP ---
+      // 1. Check if main image changed
+      if (image && image !== product.image) {
+        const oldPublicId = extractPublicId(product.image);
+        if (oldPublicId) {
+          deleteFromCloudinary(oldPublicId).catch(err => console.error("Cloudinary Delete Error (Main):", err));
+        }
+      }
+
+      // 2. Check if gallery images were removed
+      if (images && Array.isArray(images)) {
+        const removedImages = product.images.filter(img => !images.includes(img));
+        removedImages.forEach(img => {
+          const publicId = extractPublicId(img);
+          if (publicId) {
+            deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Gallery):", err));
+          }
+        });
+      }
+      // -------------------------
+
+      product.image = image || product.image;
+      product.images = images || product.images;
 
       const updatedProduct = await product.save();
 
@@ -928,6 +953,32 @@ exports.deleteProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (product) {
+      // --- CLOUDINARY CLEANUP ---
+      // Delete main image
+      const mainPublicId = extractPublicId(product.image);
+      if (mainPublicId) {
+        deleteFromCloudinary(mainPublicId).catch(err => console.error("Cloudinary Delete Error (Main):", err));
+      }
+
+      // Delete gallery images
+      if (product.images && product.images.length > 0) {
+        product.images.forEach(img => {
+          const publicId = extractPublicId(img);
+          if (publicId) {
+            deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Gallery):", err));
+          }
+        });
+      }
+
+      // Delete video if it's a Cloudinary URL
+      if (product.video) {
+        const videoPublicId = extractPublicId(product.video);
+        if (videoPublicId) {
+          deleteFromCloudinary(videoPublicId, 'video').catch(err => console.error("Cloudinary Delete Error (Video):", err));
+        }
+      }
+      // -------------------------
+
       await Product.deleteOne({ _id: product._id });
       res.json({ message: 'Product removed' });
     } else {

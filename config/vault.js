@@ -47,7 +47,12 @@ const vault = {
     VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY,
 
     // Google Oauth
-    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID
+    GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+
+    // Cloudinary
+    CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET
 };
 
 // --- VALIDATION LOGIC ---
