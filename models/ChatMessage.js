@@ -22,6 +22,9 @@ const chatMessageSchema = mongoose.Schema({
     isRead: {
         type: Boolean,
         default: false
+    },
+    tempId: {
+        type: String
     }
 }, {
     timestamps: true

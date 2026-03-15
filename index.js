@@ -236,7 +236,8 @@ io.on("connection", (socket) => {
         user: data.userId,
         sender: data.senderId,
         message: data.message,
-        isAdmin: data.isAdmin || false
+        isAdmin: data.isAdmin || false,
+        tempId: data.tempId
       };
 
       // Create and emit
