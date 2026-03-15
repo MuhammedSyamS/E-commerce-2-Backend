@@ -224,24 +224,47 @@ io.on("connection", (socket) => {
       const User = require('./models/User');
       const ChatMessage = require('./models/ChatMessage');
 
-      // Check if chat is enabled (only for customers)
+      // Check if chat is enabled (only for customers) - Throttled check could be here but for now simple findById
       if (!data.isAdmin) {
-        const user = await User.findById(data.userId);
+        const user = await User.findById(data.userId).select('chatEnabledUntil');
         if (!user || !user.chatEnabledUntil || new Date() > user.chatEnabledUntil) {
           return socket.emit('chat-error', { message: 'Chat session expired or not active' });
         }
       }
 
-      const msg = await ChatMessage.create({
+      const msgData = {
         user: data.userId,
         sender: data.senderId,
         message: data.message,
         isAdmin: data.isAdmin || false
-      });
+      };
 
-      // Emit to specific user room and admin room
-      io.to(data.userId).emit('receive-message', msg);
-      io.emit('admin-receive-message', msg); // Notify all connected admins
+      // Create and emit
+      ChatMessage.create(msgData).then(async (msg) => {
+        io.to(data.userId).emit('receive-message', msg);
+        io.emit('admin-receive-message', msg); 
+
+        // PERSISTENT NOTIFICATION FOR ADMINS (if sent by user)
+        if (!data.isAdmin) {
+          try {
+            const Notification = require('./models/Notification');
+            const User = require('./models/User');
+            const adminUsers = await User.find({ role: 'admin' });
+            
+            // Just for the first message in a session or similar? 
+            // The user asked for it "whenever", but we'll focus on notifying them of the "New Message".
+            for (const admin of adminUsers) {
+               await Notification.create({
+                 user: admin._id,
+                 title: "New Chat Message",
+                 message: `Message from customer: ${data.message.substring(0, 30)}...`,
+                 type: 'system',
+                 data: { url: '/admin/support', userId: data.userId }
+               });
+            }
+          } catch (err) { logger.error("Chat Admin Notif Fail") }
+        }
+      }).catch(err => logger.error('Chat DB Save Error:', err.message));
     } catch (err) {
       logger.error('Chat Error:', err.message);
     }

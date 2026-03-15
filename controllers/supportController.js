@@ -19,7 +19,20 @@ exports.submitContact = async (req, res) => {
             message
         });
 
-        // EMIT SOCKET EVENT TO ADMIN
+        // NOTIFY ADMINS (Async)
+        const Notification = require('../models/Notification');
+        User.find({ role: 'admin' }).then(adminUsers => {
+            adminUsers.forEach(admin => {
+                Notification.create({
+                    user: admin._id,
+                    title: "New Enquiry",
+                    message: `New message from ${name}: ${subject}`,
+                    type: 'system',
+                    data: { url: '/admin/support' }
+                }).catch(err => console.error("Admin Notif Error:", err));
+            });
+        }).catch(err => console.error("Admin Fetch Error:", err));
+
         const io = req.app.get('socketio');
         if (io) {
             io.emit('new-contact', { name, email, subject });
@@ -99,7 +112,20 @@ exports.createTicket = async (req, res) => {
             isReadByAdmin: false
         });
 
-        // EMIT SOCKET EVENT TO ADMIN
+        // NOTIFY ADMINS (Async)
+        const Notification = require('../models/Notification');
+        User.find({ role: 'admin' }).then(adminUsers => {
+            adminUsers.forEach(admin => {
+                Notification.create({
+                    user: admin._id,
+                    title: "New Support Ticket",
+                    message: `${req.user.firstName} submitted a ticket: ${subject}`,
+                    type: 'system',
+                    data: { url: '/admin/support' }
+                }).catch(err => console.error("Admin Notif Error:", err));
+            });
+        }).catch(err => console.error("Admin Fetch Error:", err));
+
         const io = req.app.get('socketio');
         if (io) {
             io.emit('new-ticket', {
@@ -184,8 +210,16 @@ exports.updateTicket = async (req, res) => {
         if (adminResponse) {
             ticket.adminResponse = adminResponse;
             ticket.isReadByUser = false;
+        }
 
-            // --- SEND EMAIL NOTIFICATION TO USER ---
+        // Apply admin read state
+        ticket.isReadByAdmin = true;
+
+        const updatedTicket = await ticket.save();
+        res.json(updatedTicket);
+
+        // --- BACKGROUND PROCESSING (Non-blocking) ---
+        if (adminResponse) {
             try {
                 const nodemailer = require('nodemailer');
                 const supportPass = process.env.SUPPORT_EMAIL_PASS;
@@ -229,12 +263,12 @@ exports.updateTicket = async (req, res) => {
                         </div>
                     `;
 
-                    await transporter.sendMail({
+                    transporter.sendMail({
                         from: `"SLOOK Support" <${senderEmail}>`,
                         to: ticket.user.email,
                         subject: `Update on Ticket: ${ticket.subject}`,
                         html,
-                    });
+                    }).catch(err => console.error("❌ Ticket Mail Error Delay:", err.message));
                     console.log(`✅ Ticket Email Sent to: ${ticket.user.email}`);
                 }
             } catch (mailErr) {
@@ -245,19 +279,31 @@ exports.updateTicket = async (req, res) => {
             // --- REAL-TIME NOTIFICATION & SOCKET ---
             try {
                 const Notification = require('../models/Notification');
-                const notification = await Notification.create({
+                Notification.create({
                     user: ticket.user._id,
                     title: "Ticket Update",
                     message: `An administrator has responded to your ticket: ${ticket.subject}`,
                     type: 'system',
                     data: { url: '/support', ticketId: ticket._id }
-                });
+                }).then(notification => {
+                    const io = req.app.get('socketio');
+                    if (io) {
+                        io.to(ticket.user._id.toString()).emit('notification', notification);
+                    }
+                }).catch(err => console.error("User Notif Error:", err));
 
                 // UNLOCK CHAT FOR 5 MINUTES
                 const User = require('../models/User');
-                await User.findByIdAndUpdate(ticket.user._id, {
+                User.findByIdAndUpdate(ticket.user._id, {
                     chatEnabledUntil: new Date(Date.now() + 5 * 60 * 1000)
-                });
+                }).then(() => {
+                    const io = req.app.get('socketio');
+                    if (io) {
+                        io.to(ticket.user._id.toString()).emit('chat-enabled', {
+                            enabledUntil: new Date(Date.now() + 5 * 60 * 1000)
+                        });
+                    }
+                }).catch(err => console.error("Chat Unlock Error:", err));
 
                 const io = req.app.get('socketio');
                 if (io) {
@@ -267,24 +313,14 @@ exports.updateTicket = async (req, res) => {
                         message: adminResponse,
                         chatEnabledUntil: new Date(Date.now() + 5 * 60 * 1000)
                     });
-                    io.to(ticket.user._id.toString()).emit('notification', notification);
-                    io.to(ticket.user._id.toString()).emit('chat-enabled', {
-                        enabledUntil: new Date(Date.now() + 5 * 60 * 1000)
-                    });
                 }
             } catch (notifErr) {
                 console.error("❌ Notification Error:", notifErr.message);
             }
         }
-
-        // If admin opens it, mark as read by admin
-        ticket.isReadByAdmin = true;
-
-        const updatedTicket = await ticket.save();
-        res.json(updatedTicket);
     } catch (error) {
         console.error("Ticket Update Error:", error);
-        res.status(500).json({ message: 'Update failed' });
+        res.status(500).json({ message: error.message || 'Update failed' });
     }
 };
 
@@ -370,13 +406,14 @@ exports.replyToEnquiry = async (req, res) => {
             </div>
         `;
 
-        await transporter.sendMail({
+        // Send Email (Non-blocking)
+        transporter.sendMail({
             from: `"SLOOK Support" <${senderEmail}>`,
             to: contact.email,
             subject: `Re: ${contact.subject || 'Your Enquiry'} – SLOOK Support`,
             html,
             text: replyMessage,
-        });
+        }).catch(err => console.error('[SMTP EMAIL ERROR]', err.message));
 
         // Persist reply + mark as Replied
         contact.adminReply = replyMessage;
@@ -384,27 +421,24 @@ exports.replyToEnquiry = async (req, res) => {
         contact.readByAdmin = true;
         await contact.save();
 
-        // --- REAL-TIME NOTIFICATION & SOCKET (If guest is a registered user) ---
-        try {
-            const registeredUser = await User.findOne({ email: contact.email });
+        // --- REAL-TIME NOTIFICATION & SOCKET (Non-blocking) ---
+        User.findOne({ email: contact.email }).then(registeredUser => {
             if (registeredUser) {
                 const Notification = require('../models/Notification');
-                const notification = await Notification.create({
+                Notification.create({
                     user: registeredUser._id,
                     title: "Inquiry Replied",
                     message: `We've responded to your inquiry: ${contact.subject || 'your message'}`,
                     type: 'system',
                     data: { url: '/support' }
-                });
-
-                const io = req.app.get('socketio');
-                if (io) {
-                    io.to(registeredUser._id.toString()).emit('notification', notification);
-                }
+                }).then(notification => {
+                    const io = req.app.get('socketio');
+                    if (io) {
+                        io.to(registeredUser._id.toString()).emit('notification', notification);
+                    }
+                }).catch(err => console.error("❌ Contact Notif Error:", err));
             }
-        } catch (notifErr) {
-            console.error("❌ Contact Notification Error:", notifErr.message);
-        }
+        }).catch(err => console.error("❌ Registered User Fetch Error:", err));
 
         res.json({ message: 'Reply sent successfully', contact });
     } catch (error) {
