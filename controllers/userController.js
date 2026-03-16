@@ -237,6 +237,40 @@ exports.addAddress = async (req, res) => {
   }
 };
 
+// @desc    Update basic profile
+exports.updateAvatar = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ message: 'No file selected' });
+        }
+
+        const user = await User.findById(req.user._id);
+        if (!user) return res.status(404).json({ message: "User not found" });
+
+        // --- CLOUDINARY CLEANUP ---
+        // Delete old avatar if it's a Cloudinary URL
+        if (user.avatar) {
+            const oldPublicId = extractPublicId(user.avatar);
+            if (oldPublicId) {
+                deleteFromCloudinary(oldPublicId).catch(err => console.error("Cloudinary Delete Error (Old Avatar):", err));
+            }
+        }
+        // -------------------------
+
+        const result = await uploadToCloudinary(req.file.buffer, 'avatars');
+        user.avatar = result.secure_url;
+        await user.save();
+
+        res.json({
+            message: 'Avatar updated successfully',
+            avatar: user.avatar
+        });
+    } catch (error) {
+        console.error("Avatar Update Error:", error);
+        res.status(500).json({ message: 'Avatar update failed' });
+    }
+};
+
 // @desc    Remove an address
 // @route   DELETE /api/users/addresses/:id
 // @access  Private
@@ -575,6 +609,15 @@ exports.deleteUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     if (user) {
+      // --- CLOUDINARY CLEANUP ---
+      if (user.avatar) {
+        const publicId = extractPublicId(user.avatar);
+        if (publicId) {
+          deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (User Avatar):", err));
+        }
+      }
+      // -------------------------
+
       await User.deleteOne({ _id: user._id }); // Use deleteOne instead of remove()
       res.json({ message: 'User removed' });
     } else {

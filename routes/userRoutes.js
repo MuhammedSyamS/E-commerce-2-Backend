@@ -19,7 +19,20 @@ router.delete('/cards/:id', protect, userController.removeCard);
 
 // Profile
 router.put('/profile', protect, userController.updateProfile);
-router.post('/profile/avatar', protect, multer({ storage: multer.memoryStorage() }).single('file'), userController.updateAvatar);
+
+// Avatar Upload with Strict Security
+const avatarUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('image/')) {
+            cb(null, true);
+        } else {
+            cb(new Error('Only images are allowed (JPG, PNG, WebP)'), false);
+        }
+    }
+});
+router.post('/profile/avatar', protect, avatarUpload.single('file'), userController.updateAvatar);
 router.get('/referrals', protect, userController.getReferralStats);
 router.get('/loyalty-history', protect, userController.getLoyaltyHistory);
 
