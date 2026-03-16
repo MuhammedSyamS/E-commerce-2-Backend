@@ -8,19 +8,26 @@ const notFound = (req, res, next) => {
 
 const errorHandler = (err, req, res, next) => {
   // Respect the error object's status if it exists, otherwise use res.statusCode or default to 500
-  let statusCode = err.status || err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
+  let statusCode = err.status || err.statusCode || 500;
   
   if (res.headersSent) {
       return next(err);
   }
+
+  // Handle express-rate-limit error object structure
+  if (err.message === 'Too many requests') {
+      statusCode = 429;
+  }
+
   // Log the error using the winston logger
-  logger.error(`${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
+  logger.error(`[${statusCode}] ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
+  
   if (err.stack && process.env.NODE_ENV !== 'production') {
     logger.debug(err.stack);
   }
 
   res.status(statusCode).json({
-    message: err.message,
+    message: err.message || "Internal Server Error",
     stack: process.env.NODE_ENV === 'production' ? null : err.stack,
   });
 };

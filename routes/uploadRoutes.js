@@ -2,6 +2,7 @@ const express = require('express');
 const multer = require('multer');
 const path = require('path');
 const { uploadToCloudinary } = require('../utils/cloudinary');
+const logger = require('../utils/logger');
 
 const router = express.Router();
 
@@ -36,15 +37,17 @@ router.post('/', upload.single('file'), async (req, res) => {
         // Upload to Cloudinary
         const result = await uploadToCloudinary(req.file.buffer, 'products');
 
-        res.send({
+        logger.info(`[UPLOAD] File uploaded to Cloudinary: ${result.secure_url} | IP: ${req.ip}`);
+
+        res.json({
             message: 'File uploaded successfully',
             filePath: result.secure_url,
             publicId: result.public_id,
             fileName: result.original_filename
         });
     } catch (error) {
-        console.error("Upload Error:", error);
-        res.status(500).send({ message: 'Upload successfully failed', error: error.message });
+        logger.error(`[UPLOAD FAIL] Error: ${error.message} | IP: ${req.ip}`);
+        res.status(500).json({ message: 'Upload failed', error: error.message });
     }
 });
 

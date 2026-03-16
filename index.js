@@ -70,16 +70,29 @@ const apiLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// Strict Auth Limiter: 5 attempts per minute
 const authLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 15, // Limit each IP to 15 login/register attempts per hour
-  message: "Too many attempts from this IP, please try again after an hour",
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 5,
+  message: { message: "Too many login/register attempts. Please try again after a minute." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Strict Upload Limiter: 10 uploads per minute
+const uploadLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1 minute
+  max: 10,
+  message: { message: "Too many upload requests. Please try again after a minute." },
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 app.use("/api", apiLimiter);
-app.use("/api/auth", authLimiter);
+app.use("/api/users/login", authLimiter);
+app.use("/api/users/register", authLimiter);
+app.use("/api/upload", uploadLimiter);
+app.use("/api/looks", uploadLimiter); // Also limit looks upload
 
 // ============================
 // 🌍 CORS

@@ -3,6 +3,7 @@ const Otp = require('../models/Otp');
 const generateToken = require('../utils/generateToken');
 const sendEmail = require('../utils/sendEmail');
 const { getWelcomeTemplate } = require('../utils/emailTemplates');
+const logger = require('../utils/logger');
 
 // --- 1. SEND OTP ---
 exports.sendOtp = async (req, res) => {
@@ -154,7 +155,7 @@ exports.registerUser = async (req, res) => {
         subject: `Welcome to SLOOK, ${user.firstName}!`,
         html: getWelcomeTemplate(user)
       });
-      console.log(`Welcome email sent to ${user.email}`);
+      logger.info(`[REGISTRATION] New user registered: ${user.email} (ID: ${user._id})`);
     } catch (emailErr) {
       console.error("Welcome Email Failed:", emailErr);
       // Don't fail registration if email fails
@@ -179,18 +180,18 @@ exports.loginUser = async (req, res) => {
 
     // SPECIFIC VALIDATION: Invalid Credentials (Generic Message for Security)
     if (!user) {
-      console.warn(`[AUTH] [LOGIN FAIL] User not found: ${email}`);
+      logger.warn(`[AUTH] [LOGIN FAIL] Email not found: ${email} | IP: ${req.ip}`);
       return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
     }
 
     // SPECIFIC VALIDATION: Incorrect Password
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
-      console.warn(`[AUTH] [LOGIN FAIL] Invalid password for: ${email}`);
+      logger.warn(`[AUTH] [LOGIN FAIL] Incorrect password for: ${email} | IP: ${req.ip}`);
       return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
     }
 
-    console.log(`[AUTH] [LOGIN SUCCESS] User authenticated: ${email}`);
+    logger.info(`[AUTH] [LOGIN SUCCESS] User authenticated: ${email} (ID: ${user._id})`);
 
     // SUCCESS: Clean up dead wishlist items before sending back
     const validWishlist = (user.wishlist || []).filter(item => item !== null);
