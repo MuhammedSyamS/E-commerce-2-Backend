@@ -3,6 +3,8 @@ const Product = require('../models/Product');
 const Return = require('../models/Return'); // NEW
 const sendEmail = require('../utils/sendEmail');
 const logger = require('../utils/logger');
+const { emailQueue } = require('../services/queueService');
+const Sentry = require('@sentry/node');
 
 const { getOrderConfirmationTemplate, getShippingConfirmationTemplate } = require('../utils/emailTemplates');
 const { logStockChange } = require('../utils/stockUtils');
@@ -187,21 +189,20 @@ const addOrderItems = async (req, res) => {
     try {
       const createdOrder = await order.save();
 
-      // --- SEND EMAIL CONFIRMATION ---
+      // --- SEND EMAIL CONFIRMATION (VIA BULLMQ) ---
       try {
-        const { sendEmail } = require('../utils/emailUtils');
-        const { getOrderConfirmationTemplate } = require('../utils/emailTemplates');
-        await sendEmail({
-          type: 'press',
-          email: req.user.email,
-          subject: `Order Confirmed - #${createdOrder._id}`,
-          html: getOrderConfirmationTemplate({
-            ...createdOrder.toObject(),
-            user: req.user
-          })
+        await emailQueue.add('order-confirmation', {
+          type: 'order-confirmation',
+          data: {
+            email: req.user.email,
+            orderId: createdOrder._id,
+            user: { firstName: req.user.firstName, lastName: req.user.lastName }
+          }
         });
+        logger.info(`[ORDER] Confirmation email queued for: ${req.user.email}`);
       } catch (emailError) {
-        console.error("EMAIL FAILED:", emailError.message);
+        Sentry.captureException(emailError);
+        logger.error("QUEUE FAILED:", emailError.message);
       }
 
       // --- AWARD LOYALTY POINTS (If Paid) ---

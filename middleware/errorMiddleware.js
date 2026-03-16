@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const Sentry = require('@sentry/node');
 
 const notFound = (req, res, next) => {
   const error = new Error(`Not Found - ${req.originalUrl}`);
@@ -22,6 +23,11 @@ const errorHandler = (err, req, res, next) => {
   // Log the error using the winston logger
   logger.error(`[${statusCode}] ${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
   
+  // Capture critical errors in Sentry
+  if (statusCode >= 500) {
+    Sentry.captureException(err);
+  }
+
   if (err.stack && process.env.NODE_ENV !== 'production') {
     logger.debug(err.stack);
   }

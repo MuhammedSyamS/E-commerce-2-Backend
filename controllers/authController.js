@@ -1,9 +1,6 @@
-const User = require('../models/User');
-const Otp = require('../models/Otp');
-const generateToken = require('../utils/generateToken');
-const sendEmail = require('../utils/sendEmail');
 const { getWelcomeTemplate } = require('../utils/emailTemplates');
 const logger = require('../utils/logger');
+const authService = require('../services/authService');
 
 // --- 1. SEND OTP ---
 exports.sendOtp = async (req, res) => {
@@ -95,126 +92,36 @@ exports.registerUser = async (req, res) => {
     const { firstName, lastName, email: rawEmail, password, code, phone } = req.body;
     const email = rawEmail?.toLowerCase().trim();
 
-    // Field Validation
-    if (!firstName || !lastName || !email || !password || !code || !phone) {
-      return res.status(400).json({ message: "PLEASE FILL ALL FIELDS" });
-    }
-
-    if (password.length < 6) {
-      return res.status(400).json({ message: "PASSWORD MUST BE AT LEAST 6 CHARACTERS" });
-    }
-
-    // Verify OTP exists and matches
+    // The code check and user existence check are moved to the service
+    // But some project-specific logic (OTP record check) might stay for now or also move.
+    // For a "Clean" refactor, let's move everything related to user creation.
+    
+    // Check OTP in controller for now as it's a "request" validation step
+    const Otp = require('../models/Otp');
     const otpRecord = await Otp.findOne({ email, code: code.trim() });
     if (!otpRecord) {
-      return res.status(400).json({ message: "INVALID OR EXPIRED VERIFICATION CODE" });
+      return res.status(400).json({ success: false, message: "INVALID OR EXPIRED VERIFICATION CODE" });
     }
 
-    // Double-check existence to prevent race conditions
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: "USER ALREADY REGISTERED" });
-    }
+    const user = await authService.register(req.body);
 
-    // Create User (Schema's pre-save hook will handle hashing)
-    const user = await User.create({
-      firstName,
-      lastName,
-      email,
-      phone,
-      password, // Plain text sent here, hashed by Schema
-      referralCode: Math.random().toString(36).substring(2, 8).toUpperCase()
-    });
-
-    // Handle Referral Usage
-    if (req.body.referralCode) {
-      const referrer = await User.findOne({ referralCode: req.body.referralCode.toUpperCase() });
-      if (referrer) {
-        user.referredBy = referrer._id;
-        await user.save();
-      }
-    }
-
-    // Clean up OTP record
+    // Clean up OTP
     await Otp.deleteOne({ _id: otpRecord._id });
 
-    res.status(201).json({
-      _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      email: user.email,
-      wishlist: user.wishlist, // Init empty
-      cart: user.cart,         // Init empty
-      token: generateToken(user._id),
-    });
-
-    // --- SEND WELCOME EMAIL ---
-    try {
-      await sendEmail({
-        email: user.email,
-        subject: `Welcome to SLOOK, ${user.firstName}!`,
-        html: getWelcomeTemplate(user)
-      });
-      logger.info(`[REGISTRATION] New user registered: ${user.email} (ID: ${user._id})`);
-    } catch (emailErr) {
-      console.error("Welcome Email Failed:", emailErr);
-      // Don't fail registration if email fails
-    }
+    res.status(201).json({ success: true, ...user });
   } catch (error) {
-    res.status(500).json({ message: error.message || "REGISTRATION FAILED" });
+    res.status(400).json({ success: false, message: error.message || "REGISTRATION FAILED" });
   }
 };
 
 // --- 3. LOGIN USER ---
 exports.loginUser = async (req, res) => {
   try {
-    const { password } = req.body;
-    const email = req.body.email?.toLowerCase().trim();
-
-    if (!email || !password) {
-      return res.status(400).json({ message: "EMAIL AND PASSWORD REQUIRED" });
-    }
-
-    // Find user and explicitly populate wishlist to weed out deleted products
-    const user = await User.findOne({ email }).populate('wishlist');
-
-    // SPECIFIC VALIDATION: Invalid Credentials (Generic Message for Security)
-    if (!user) {
-      logger.warn(`[AUTH] [LOGIN FAIL] Email not found: ${email} | IP: ${req.ip}`);
-      return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
-    }
-
-    // SPECIFIC VALIDATION: Incorrect Password
-    const isMatch = await user.matchPassword(password);
-    if (!isMatch) {
-      logger.warn(`[AUTH] [LOGIN FAIL] Incorrect password for: ${email} | IP: ${req.ip}`);
-      return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
-    }
-
-    logger.info(`[AUTH] [LOGIN SUCCESS] User authenticated: ${email} (ID: ${user._id})`);
-
-    // SUCCESS: Clean up dead wishlist items before sending back
-    const validWishlist = (user.wishlist || []).filter(item => item !== null);
-
-    // DB cleanup if dead IDs found
-    if (validWishlist.length !== user.wishlist.length) {
-      await User.updateOne({ _id: user._id }, { wishlist: validWishlist.map(p => p._id) });
-    }
-
-    res.json({
-      _id: user._id,
-      firstName: user.firstName,
-      lastName: user.lastName,
-      wishlist: validWishlist.map(p => p._id), // Only valid IDs
-      cart: user.cart,
-      phone: user.phone,
-      referralCode: user.referralCode,
-      referralEarnings: user.referralEarnings,
-      loyaltyPoints: user.loyaltyPoints,
-      token: generateToken(user._id),
-    });
+    const { email, password } = req.body;
+    const user = await authService.login(email, password);
+    res.json({ success: true, ...user });
   } catch (error) {
-    res.status(500).json({ message: "LOGIN FAILED: SERVER ERROR" });
+    res.status(401).json({ success: false, message: error.message || "LOGIN FAILED" });
   }
 };
 

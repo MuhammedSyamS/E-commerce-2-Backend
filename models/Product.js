@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { optimizeCloudinaryUrl } = require('../utils/imageUtils');
 
 const reviewSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -73,6 +74,9 @@ productSchema.index({ price: 1 });
 productSchema.index({ name: 'text', tags: 'text' }); // For Keyword Search
 productSchema.index({ 'variants.size': 1, 'variants.color': 1 });
 productSchema.index({ badge: 1 });
+productSchema.index({ category: 1 });
+productSchema.index({ price: 1 });
+productSchema.index({ createdAt: -1 });
 
 // ENFORCE STOCK CONSISTENCY
 // ENFORCE STOCK CONSISTENCY

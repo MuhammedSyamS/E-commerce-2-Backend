@@ -18,6 +18,9 @@ const {
 
 // Import your authentication middleware
 const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
+const cache = require('../middleware/cacheMiddleware');
+const validate = require('../middleware/validationMiddleware');
+const { productSchema } = require('../utils/validations/authValidation');
 
 /**
  * @route   GET /api/products
@@ -31,8 +34,8 @@ router.get('/search', require('../controllers/productController').searchProducts
  * @desc    Fetch all products (used for shop and category filters)
  * @access  Public
  */
-router.get('/', getProducts);
-router.get('/home', getHomeProducts);
+router.get('/', cache(300), getProducts);
+router.get('/home', cache(120), getHomeProducts);
 
 /**
  * @route   GET /api/products/recommendations
@@ -70,7 +73,7 @@ router.get('/reviews/my-reviews', protect, getUserReviews);
 router.get('/filters', require('../controllers/productController').getFilterData);
 router.get('/:id/variants', require('../controllers/productController').getProductVariants);
 router.get('/:id/reviews/full', require('../controllers/productController').getProductFullReviews);
-router.get('/:slug', getProductBySlug);
+router.get('/:slug', cache(300), getProductBySlug);
 
 // ADMIN / MANAGER ROUTES
 /**
@@ -78,8 +81,8 @@ router.get('/:slug', getProductBySlug);
  * @desc    Create a new product
  * @access  Private/Admin/Manager
  */
-router.post('/', protect, hasPermission('manage_products'), createProduct);
-
+router.post('/', protect, hasPermission('manage_products'), validate(productSchema), createProduct);
+筋
 /**
  * @route   PUT /api/products/bulk-update
  * @desc    Bulk update products (Price, Stock, Status)

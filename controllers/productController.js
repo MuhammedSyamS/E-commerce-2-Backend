@@ -1,7 +1,6 @@
-const Product = require('../models/Product');
-const { logStockChange } = require('../utils/stockUtils');
-const logger = require('../utils/logger');
 const { deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const productService = require('../services/productService');
+const Sentry = require('@sentry/node');
 
 exports.searchProducts = async (req, res) => {
   try {
@@ -44,116 +43,11 @@ exports.searchProducts = async (req, res) => {
 
 exports.getProducts = async (req, res) => {
   try {
-    const {
-      keyword, category, subcategory,
-      minPrice, maxPrice, sort,
-      size, color, minRating, minDiscount,
-      isNewArrival, isBestSeller, inStock, isFlashSale
-    } = req.query;
-
-    let query = {};
-
-    // 1. Search Keyword
-    if (keyword) {
-      query.$or = [
-        { name: { $regex: keyword, $options: 'i' } },
-        { description: { $regex: keyword, $options: 'i' } },
-        { tags: { $regex: keyword, $options: 'i' } }
-      ];
-    }
-
-    // 2. Category & Subcategory
-    if (category && category !== 'All' && category !== 'undefined') {
-      query.category = category;
-    }
-    if (subcategory && subcategory !== 'All' && subcategory !== 'undefined') {
-      query.subcategory = subcategory;
-    }
-
-    // 3. Price Filter
-    if (minPrice || maxPrice) {
-      query.price = {};
-      if (minPrice) query.price.$gte = Number(minPrice);
-      if (maxPrice) query.price.$lte = Number(maxPrice);
-    }
-
-    // 4. Variant Filters
-    if (size) query['variants.size'] = size;
-    if (color) query['variants.color'] = color;
-
-    // 5. Special Flags
-    if (isNewArrival === 'true') query.isNewArrival = true;
-    if (isBestSeller === 'true') query.isBestSeller = true;
-    if (isFlashSale === 'true') query.isFlashSale = true;
-    if (inStock === 'true') query.countInStock = { $gt: 0 };
-
-    // 6. Discount Filter (Calculated or Flag)
-    if (minDiscount) {
-      const discountVal = Number(minDiscount);
-      // If we have a discountPrice, we check if (price - discountPrice)/price * 100 >= minDiscount
-      // Since MongoDB can't easily do this calc on the fly without aggregation if we want it efficient,
-      // we check if discountPrice > 0 and basically filter products that have a discount.
-      // For specific percentage, normally we'd store discountPercentage in the model.
-      // For now, let's filter products where discountPrice exists and is > 0
-      query.discountPrice = { $gt: 0 };
-    }
-
-    // 5.1 Dynamic Specs (spec_Key=Value)
-    Object.keys(req.query).forEach(key => {
-      if (key.startsWith('spec_')) {
-        const specKey = key.replace('spec_', '');
-        const specValue = req.query[key];
-        
-        // Match in specs array
-        if (!query.$and) query.$and = [];
-        query.$and.push({
-          specs: { $elemMatch: { key: specKey, value: specValue } }
-        });
-      }
-    });
-
-    // 6. Rating Filter
-    if (minRating) {
-      query.rating = { $gte: Number(minRating) };
-    }
-
-    // 7. Sorting
-    let sortOption = { createdAt: -1 };
-    if (sort) {
-      switch (sort) {
-        case 'price-asc': sortOption = { price: 1 }; break;
-        case 'price-desc': sortOption = { price: -1 }; break;
-        case 'oldest': sortOption = { createdAt: 1 }; break;
-        case 'rating': sortOption = { rating: -1 }; break;
-        case 'mostViewed': sortOption = { viewCount: -1 }; break;
-        default: sortOption = { createdAt: -1 };
-      }
-    }
-
-    const pageSize = Number(req.query.pageSize) || 20;
-    const page = Number(req.query.page) || 1;
-    const skip = (page - 1) * pageSize;
-
-    const count = await Product.countDocuments(query);
-    const products = await Product.find(query)
-      .sort(sortOption)
-      .limit(pageSize)
-      .skip(skip)
-      .select('name slug image price category tags isNewArrival isBestSeller rating numReviews countInStock badge variants')
-      .lean();
-
-    if (req.query.page || req.query.pageSize) {
-      return res.status(200).json({
-        products,
-        page,
-        pages: Math.ceil(count / pageSize),
-        total: count
-      });
-    }
-
-    res.status(200).json(products);
+    const result = await productService.getProducts(req.query);
+    res.json({ success: true, ...result });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    Sentry.captureException(error);
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

@@ -8,6 +8,9 @@ const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
 const mongoSanitize = require("express-mongo-sanitize");
+const xss = require("xss-clean");
+const Sentry = require("@sentry/node");
+const { nodeProfilingIntegration } = require("@sentry/profiling-node");
 const { Server } = require("socket.io");
 const path = require("path");
 
@@ -41,6 +44,19 @@ if (!fs.existsSync(path.join(buildPath, "index.html"))) {
 // 🚀 CREATE APP & SERVER
 // ============================
 const app = express();
+
+// ============================
+// 📊 MONITORING (Sentry)
+// ============================
+Sentry.init({
+  dsn: process.env.SENTRY_DSN || "https://examplePublicKey@o0.ingest.sentry.io/0",
+  integrations: [
+    nodeProfilingIntegration(),
+  ],
+  tracesSampleRate: 1.0,
+  profilesSampleRate: 1.0,
+});
+
 const server = http.createServer(app);
 
 // Enable "trust proxy" if behind a reverse proxy (Render, Heroku, etc.)
@@ -59,20 +75,22 @@ app.use(
 app.use(compression());
 app.use(express.json({ limit: "2mb" })); // Reduced from 100mb for security
 app.use(mongoSanitize()); // Prevent NoSQL injection
+app.use(xss()); // Prevent XSS attacks
 
 // ============================
 // 🚦 RATE LIMITING
 // ============================
+// General API Limiter: 100 requests per minute
 const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 500,
+  windowMs: 1 * 60 * 1000, 
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
 });
 
 // Strict Auth Limiter: 5 attempts per minute
 const authLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
+  windowMs: 1 * 60 * 1000, 
   max: 5,
   message: { message: "Too many login/register attempts. Please try again after a minute." },
   standardHeaders: true,
@@ -81,7 +99,7 @@ const authLimiter = rateLimit({
 
 // Strict Upload Limiter: 10 uploads per minute
 const uploadLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, // 1 minute
+  windowMs: 1 * 60 * 1000, 
   max: 10,
   message: { message: "Too many upload requests. Please try again after a minute." },
   standardHeaders: true,
@@ -92,7 +110,7 @@ app.use("/api", apiLimiter);
 app.use("/api/users/login", authLimiter);
 app.use("/api/users/register", authLimiter);
 app.use("/api/upload", uploadLimiter);
-app.use("/api/looks", uploadLimiter); // Also limit looks upload
+app.use("/api/looks/upload", uploadLimiter); // Updated path
 
 // ============================
 // 🌍 CORS
