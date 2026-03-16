@@ -7,6 +7,7 @@ const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
+const mongoSanitize = require("express-mongo-sanitize");
 const { Server } = require("socket.io");
 const path = require("path");
 
@@ -57,6 +58,7 @@ app.use(
 
 app.use(compression());
 app.use(express.json({ limit: "2mb" })); // Reduced from 100mb for security
+app.use(mongoSanitize()); // Prevent NoSQL injection
 
 // ============================
 // 🚦 RATE LIMITING
@@ -213,7 +215,10 @@ app.use((req, res, next) => {
 // 🌍 SOCKET.IO
 // ============================
 const io = new Server(server, {
-  cors: { origin: "*" },
+  cors: { 
+    origin: allowedOrigins,
+    credentials: true
+  },
 });
 
 io.on("connection", (socket) => {

@@ -74,8 +74,7 @@ const userSchema = new mongoose.Schema({
     last4: String,
     brand: String, // Visa, MasterCard
     expMonth: String,
-    expYear: String,
-    cvv: String // Added for demo purposes
+    expYear: String
   }],
   abandonedCartEmailSentAt: { type: Date }, // Track when we last nudged them
   // REFERRAL SYSTEM

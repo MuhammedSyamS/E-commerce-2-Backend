@@ -177,17 +177,17 @@ exports.loginUser = async (req, res) => {
     // Find user and explicitly populate wishlist to weed out deleted products
     const user = await User.findOne({ email }).populate('wishlist');
 
-    // SPECIFIC VALIDATION: No User Found
+    // SPECIFIC VALIDATION: Invalid Credentials (Generic Message for Security)
     if (!user) {
       console.warn(`[AUTH] [LOGIN FAIL] User not found: ${email}`);
-      return res.status(404).json({ message: "NO ACCOUNT FOUND WITH THIS EMAIL" });
+      return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
     }
 
     // SPECIFIC VALIDATION: Incorrect Password
     const isMatch = await user.matchPassword(password);
     if (!isMatch) {
       console.warn(`[AUTH] [LOGIN FAIL] Invalid password for: ${email}`);
-      return res.status(401).json({ message: "INCORRECT PASSWORD. PLEASE TRY AGAIN." });
+      return res.status(401).json({ message: "INVALID EMAIL OR PASSWORD" });
     }
 
     console.log(`[AUTH] [LOGIN SUCCESS] User authenticated: ${email}`);
@@ -266,10 +266,10 @@ exports.forgotPasswordOtp = async (req, res) => {
 
     const emailLower = email.toLowerCase().trim();
 
-    // Check if user exists
+    // Check if user exists (Generic response for security)
     const user = await User.findOne({ email: emailLower });
     if (!user) {
-      return res.status(404).json({ message: "NO ACCOUNT FOUND WITH THIS EMAIL" });
+      return res.status(200).json({ message: "RESET CODE SENT TO EMAIL" }); 
     }
 
     // Generate 6-digit OTP
