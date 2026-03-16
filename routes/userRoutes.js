@@ -5,39 +5,39 @@ const userController = require('../controllers/userController');
 const { protect, admin, hasPermission } = require('../middleware/authMiddleware');
 
 // All wishlist actions require being logged in
-router.post('/wishlist', protect, toggleWishlist);
-router.post('/wishlist/bulk', protect, require('../controllers/userController').bulkWishlist);
-router.get('/wishlist', protect, require('../controllers/userController').getWishlist);
+router.post('/wishlist', protect, userController.toggleWishlist);
+router.post('/wishlist/bulk', protect, userController.bulkWishlist);
+router.get('/wishlist', protect, userController.getWishlist);
 
 // Address Book
-router.post('/addresses', protect, addAddress);
-router.delete('/addresses/:id', protect, removeAddress);
+router.post('/addresses', protect, userController.addAddress);
+router.delete('/addresses/:id', protect, userController.removeAddress);
 
 // Saved Cards
-router.post('/cards', protect, addCard);
-router.delete('/cards/:id', protect, removeCard);
+router.post('/cards', protect, userController.addCard);
+router.delete('/cards/:id', protect, userController.removeCard);
 
 // Profile
 router.put('/profile', protect, userController.updateProfile);
 router.post('/profile/avatar', protect, multer({ storage: multer.memoryStorage() }).single('file'), userController.updateAvatar);
-router.get('/referrals', protect, require('../controllers/userController').getReferralStats);
-router.get('/loyalty-history', protect, require('../controllers/userController').getLoyaltyHistory);
+router.get('/referrals', protect, userController.getReferralStats);
+router.get('/loyalty-history', protect, userController.getLoyaltyHistory);
 
 // History (AI)
-router.post('/history', protect, require('../controllers/userController').recordView);
-router.get('/recently-viewed', protect, require('../controllers/userController').getRecentlyViewed);
+router.post('/history', protect, userController.recordView);
+router.get('/recently-viewed', protect, userController.getRecentlyViewed);
 
 // Social Login
-router.post('/google-login', require('../controllers/userController').googleLogin);
+router.post('/google-login', userController.googleLogin);
 
 // Notifications
 // Notification Routes
-router.get('/notifications', protect, getNotifications);
-router.put('/notifications/:id/read', protect, markNotificationRead); // NEW
+router.get('/notifications', protect, userController.getNotifications);
+router.put('/notifications/:id/read', protect, userController.markNotificationRead); // NEW
 
 // OTP Routes for Security
-router.post('/security/send-otp', protect, require('../controllers/userController').sendOTP);
-router.post('/verify-otp', protect, require('../controllers/userController').verifyOTP);
+router.post('/security/send-otp', protect, userController.sendOTP);
+router.post('/verify-otp', protect, userController.verifyOTP);
 
 // --- ADMIN ROUTES ---
 // We should add an 'admin' middleware check here in a real app, 
