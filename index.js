@@ -56,7 +56,7 @@ app.use(
 );
 
 app.use(compression());
-app.use(express.json({ limit: "100mb" }));
+app.use(express.json({ limit: "2mb" })); // Reduced from 100mb for security
 
 // ============================
 // 🚦 RATE LIMITING
@@ -100,14 +100,20 @@ app.use(
       // Allow requests with no origin (like mobile apps or curl)
       if (!origin) return callback(null, true);
 
+      // Dynamically add origins from vault.ALLOWED_ORIGINS
+      const dynamicOrigins = vault.ALLOWED_ORIGINS 
+        ? vault.ALLOWED_ORIGINS.split(',').map(o => o.trim().toLowerCase()) 
+        : [];
+      
+      const allAllowed = [...allowedOrigins.map(o => o.trim().toLowerCase()), ...dynamicOrigins];
       const normalizedOrigin = origin.trim().toLowerCase();
-      const isAllowed = allowedOrigins.some(o => o.trim().toLowerCase() === normalizedOrigin);
+      const isAllowed = allAllowed.includes(normalizedOrigin);
 
       if (isAllowed) {
         return callback(null, true);
       }
 
-      logger.warn(`🚫 CORS BLOCKED | Origin: ${origin} | Allowed: ${allowedOrigins.join(', ')}`);
+      logger.warn(`🚫 CORS BLOCKED | Origin: ${origin} | Allowed total: ${allAllowed.length}`);
       return callback(new Error("CORS blocked"));
     },
     credentials: true,

@@ -1,0 +1,52 @@
+1. Login as Admin to get Token
+Attempting to register admin...
+Admin likely exists, proceeding to login...
+Admin logged in. Token obtained.
+2. Creating dummy user for testing
+2. Fetching Target Customer
+Target User ID: 698c16b78f559a44c91e3f64, Current Role: customer
+3. Test 1: Update to Manager (Product)
+Update 1 Response Status: 200
+Update 1 Data: {
+  _id: '698c16b78f559a44c91e3f64',
+  firstName: 'Test',
+  lastName: 'Customer',
+  email: 'customer@example.com',
+  password: '$2b$10$Fije8aT30igB8mtqG4ap6.itYYeoWX83duOmRW8KtaQgsrm/913Be',
+  role: 'manager',
+  isBlocked: false,
+  isAdmin: false,
+  isSuperAdmin: false,
+  permissions: [ 'manage_products' ],
+  wishlist: [],
+  cart: [],
+  addresses: [],
+  notifications: [],
+  savedCards: [],
+  createdAt: '2026-02-11T05:42:15.351Z',
+  updatedAt: '2026-02-11T05:46:17.041Z',
+  __v: 0
+}
+SUCCESS: User is now Manager with manage_products
+4. Test 2: Update back to Customer
+Update 2 Data: {
+  _id: '698c16b78f559a44c91e3f64',
+  firstName: 'Test',
+  lastName: 'Customer',
+  email: 'customer@example.com',
+  password: '$2b$10$Fije8aT30igB8mtqG4ap6.itYYeoWX83duOmRW8KtaQgsrm/913Be',
+  role: 'customer',
+  isBlocked: false,
+  isAdmin: false,
+  isSuperAdmin: false,
+  permissions: [],
+  wishlist: [],
+  cart: [],
+  addresses: [],
+  notifications: [],
+  savedCards: [],
+  createdAt: '2026-02-11T05:42:15.351Z',
+  updatedAt: '2026-02-11T05:46:17.207Z',
+  __v: 0
+}
+SUCCESS: User is now Customer

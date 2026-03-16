@@ -7,8 +7,12 @@ const notFound = (req, res, next) => {
 };
 
 const errorHandler = (err, req, res, next) => {
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  // Respect the error object's status if it exists, otherwise use res.statusCode or default to 500
+  let statusCode = err.status || err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
   
+  if (res.headersSent) {
+      return next(err);
+  }
   // Log the error using the winston logger
   logger.error(`${err.message} - ${req.originalUrl} - ${req.method} - ${req.ip}`);
   if (err.stack && process.env.NODE_ENV !== 'production') {

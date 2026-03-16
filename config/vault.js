@@ -17,7 +17,8 @@ const optionalVars = [
     'SUPPORT_EMAIL',
     'PRESS_EMAIL',
     'VAPID_PUBLIC_KEY',
-    'VAPID_PRIVATE_KEY'
+    'VAPID_PRIVATE_KEY',
+    'ALLOWED_ORIGINS'
 ];
 
 const vault = {
@@ -37,6 +38,7 @@ const vault = {
 
     // Client URL (CORS)
     CLIENT_URL: process.env.CLIENT_URL,
+    ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS,
 
     // Payment gateway
     RAZORPAY_KEY_ID: process.env.RAZORPAY_KEY_ID,

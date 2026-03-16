@@ -1,0 +1,26 @@
+{
+  "name": "Preiume",
+  "countInStock": 16,
+  "variants": [
+    {
+      "size": "10",
+      "color": "red",
+      "stock": 11
+    },
+    {
+      "size": "11",
+      "color": "blue",
+      "stock": 2
+    },
+    {
+      "size": "10",
+      "color": "green",
+      "stock": 3
+    },
+    {
+      "size": "11",
+      "color": "yellow",
+      "stock": 0
+    }
+  ]
+}

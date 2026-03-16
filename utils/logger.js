@@ -34,11 +34,9 @@ const logger = winston.createLogger({
     ],
 });
 
-// If we're not in production then log to the `console`
-if (process.env.NODE_ENV !== 'production') {
-    logger.add(new winston.transports.Console({
-        format: consoleFormat,
-    }));
-}
+// Add Console transport for all environments (crucial for cloud hosting logs)
+logger.add(new winston.transports.Console({
+    format: consoleFormat,
+}));
 
 module.exports = logger;

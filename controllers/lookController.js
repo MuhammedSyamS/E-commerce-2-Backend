@@ -40,12 +40,25 @@ const createLook = async (req, res) => {
 // @access  Public
 const getAllLooks = async (req, res) => {
     try {
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 12; // Default to 12 looks
+        const skip = (page - 1) * limit;
+
+        const count = await Look.countDocuments({ status: 'approved' });
+        
         const looks = await Look.find({ status: 'approved' })
             .populate('user', 'firstName lastName email avatar membershipTier')
             .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit)
             .lean();
 
-        res.json(looks);
+        res.json({
+            looks,
+            page,
+            pages: Math.ceil(count / limit),
+            total: count
+        });
     } catch (error) {
         res.status(500).json({ message: 'Server Error', error: error.message });
     }
