@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const Look = require('../models/Look');
 
 // @desc    Create a new look
 // @route   POST /api/looks
