@@ -1,69 +1,57 @@
 const mongoose = require('mongoose');
 const dotenv = require('dotenv');
+const path = require('path');
+
+dotenv.config({ path: path.join(__dirname, '.env') });
+
 const Product = require('./models/Product');
 const User = require('./models/User');
 
-dotenv.config();
-
-const testReviews = async () => {
+const testReview = async () => {
     try {
         await mongoose.connect(process.env.MONGO_URI);
         console.log("DB Connected.");
 
-        // 1. Get the first user (assuming this is the one logged in)
         const user = await User.findOne();
-        if (!user) { console.log("No User Found"); process.exit(); }
+        if (!user) { console.log("No user found"); process.exit(); }
 
-        const userId = user._id; // ObjectId
-        const userIdStr = userId.toString(); // String
+        const product = await Product.findOne();
+        if (!product) { console.log("No product found"); process.exit(); }
 
-        console.log(`Testing for User ID: ${userId}`);
-        console.log(`ID Type: ${typeof userId}, Constructor: ${userId.constructor.name}`);
+        console.log(`Testing with Product: ${product.name}`);
+        console.log(`Testing with User: ${user.firstName}`);
 
-        // 2. Run Aggregation EXACTLY as in Controller
-        const pipeline = [
-            { $unwind: "$reviews" },
-            {
-                $match: {
-                    $or: [
-                        { "reviews.user": userId },          // ObjectId (mongoose handles casting usually, but let's be explicit)
-                        { "reviews.user": userIdStr }        // String
-                    ]
-                }
-            },
-            {
-                $project: {
-                    productName: "$name",
-                    reviewUser: "$reviews.user",
-                    reviewUserType: { $type: "$reviews.user" }
-                }
-            }
-        ];
+        // Mock a Cloudinary URL
+        const mockCloudinaryUrl = "https://res.cloudinary.com/highphaus/image/upload/v123456789/products/test-image.jpg";
+        
+        const review = {
+            name: user.firstName,
+            rating: 5,
+            comment: "TEST CLOUDINARY REVIEW - " + new Date().toISOString(),
+            images: [mockCloudinaryUrl],
+            videos: [],
+            user: user._id,
+            isVerifiedPurchase: true,
+            helpful: []
+        };
 
-        console.log("\n--- RUNNING AGGREGATION ---");
-        const results = await Product.aggregate(pipeline);
-        console.log(`Found ${results.length} reviews via Aggregation.`);
-        results.forEach(r => {
-            console.log(` - Product: ${r.productName} | User in Review: ${r.reviewUser} (Type: ${r.reviewUserType})`);
-        });
+        product.reviews.push(review);
+        await product.save();
 
-        // 3. Debug if specific type fails
-        if (results.length === 0) {
-            console.log("\n--- DEBUGGING NO MATCH ---");
-            // Find ANY review for this user manually
-            const allProducts = await Product.find({ "reviews.user": userId });
-            console.log(`Simple Find (ObjectId) found: ${allProducts.length} products.`);
+        console.log("Review submitted with Cloudinary URL.");
 
-            const allProductsStr = await Product.find({ "reviews.user": userIdStr });
-            console.log(`Simple Find (String) found: ${allProductsStr.length} products.`);
-
-            // Dump one review to inspect
-            const p = await Product.findOne({ 'reviews.0': { $exists: true } });
-            if (p) {
-                console.log("Sample Review User Field:", p.reviews[0].user);
-                console.log("Is ObjectId?", p.reviews[0].user instanceof mongoose.Types.ObjectId);
-                console.log("Does it equal valid userId?", p.reviews[0].user.toString() === userIdStr);
-            }
+        // Re-fetch to verify
+        const updatedProduct = await Product.findById(product._id);
+        const latestReview = updatedProduct.reviews[updatedProduct.reviews.length - 1];
+        
+        console.log("\n--- VERIFICATION ---");
+        console.log(`Comment: ${latestReview.comment}`);
+        console.log(`Images: ${JSON.stringify(latestReview.images)}`);
+        
+        if (latestReview.images[0] === mockCloudinaryUrl) {
+            console.log("\n✅ SUCCESS: Cloudinary URL stored correctly.");
+        } else {
+            console.log("\n❌ FAILURE: Data mismatch!");
         }
 
         process.exit();
@@ -73,4 +61,4 @@ const testReviews = async () => {
     }
 };
 
-testReviews();
+testReview();
