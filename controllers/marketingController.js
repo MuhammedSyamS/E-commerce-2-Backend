@@ -101,6 +101,7 @@ exports.verifyCoupon = async (req, res) => {
         res.json({
             discount,
             code: coupon.code,
+            discountType: coupon.discountType,
             message: 'Coupon Applied!'
         });
 
