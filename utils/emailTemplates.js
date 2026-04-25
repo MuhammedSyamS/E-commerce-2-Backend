@@ -170,7 +170,7 @@ const getAbandonedCartTemplate = (user, cartItems) => {
             </div>
 
             <div style="margin-bottom: 35px;">
-                <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/cart" style="background: #000; color: #fff; display: inline-block; padding: 15px 30px; border-radius: 5px; text-decoration: none; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Complete Order</a>
+                <a href="${process.env.CLIENT_URL || 'http://localhost:5173'}/cartdrawer" style="background: #000; color: #fff; display: inline-block; padding: 15px 30px; border-radius: 5px; text-decoration: none; font-weight: bold; text-transform: uppercase; letter-spacing: 1px;">Complete Order</a>
             </div>
         </div>
 

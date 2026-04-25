@@ -36,6 +36,7 @@ router.get('/search', require('../controllers/productController').searchProducts
  */
 router.get('/', cache(300), getProducts);
 router.get('/home', cache(120), getHomeProducts);
+router.get('/random', require('../controllers/productController').getRandomProducts);
 
 /**
  * @route   GET /api/products/recommendations
@@ -82,7 +83,7 @@ router.get('/:slug', cache(300), getProductBySlug);
  * @access  Private/Admin/Manager
  */
 router.post('/', protect, hasPermission('manage_products'), validate(productSchema), createProduct);
-筋
+
 /**
  * @route   PUT /api/products/bulk-update
  * @desc    Bulk update products (Price, Stock, Status)

@@ -1,6 +1,8 @@
 const logger = require('../utils/logger');
-const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const { uploadMedia, deleteMedia, extractMediaId, getResourceType } = require('../services/mediaService');
 const User = require('../models/User');
+const Product = require('../models/Product');
+
 
 logger.info("UserController loaded");
 
@@ -91,6 +93,59 @@ exports.getWishlist = async (req, res) => {
 // @desc    Record product view for recommendations
 // @route   POST /api/users/history
 // @access  Private
+exports.recordView = async (req, res) => {
+  try {
+    const { productId } = req.body;
+    if (!productId) return res.status(400).json({ message: "Product ID required" });
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Remove if already exists to move to front
+    user.recentlyViewed = user.recentlyViewed.filter(
+      item => item.product.toString() !== productId
+    );
+
+    // Add to beginning
+    user.recentlyViewed.unshift({ product: productId, viewedAt: Date.now() });
+
+    // Keep only last 20
+    if (user.recentlyViewed.length > 20) {
+      user.recentlyViewed = user.recentlyViewed.slice(0, 20);
+    }
+
+    await user.save();
+    res.status(200).json({ message: "View recorded" });
+  } catch (error) {
+    console.error("RECORD VIEW ERROR:", error);
+    res.status(500).json({ message: "Failed to record view" });
+  }
+};
+
+// @desc    Get recently viewed products
+// @route   GET /api/users/recently-viewed
+// @access  Private
+exports.getRecentlyViewed = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id)
+      .populate({
+        path: 'recentlyViewed.product',
+        select: 'name slug price image images category rating numReviews countInStock'
+      });
+
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    // Filter out items where product may have been deleted and map to product objects
+    const products = user.recentlyViewed
+      .filter(item => item.product !== null)
+      .map(item => item.product);
+
+    res.json(products);
+  } catch (error) {
+    console.error("GET RECENTLY VIEWED ERROR:", error);
+    res.status(500).json({ message: "Failed to fetch recently viewed" });
+  }
+};
 // @desc    Google Login / Register
 // @route   POST /api/users/google-login
 // @access  Public
@@ -140,8 +195,9 @@ exports.googleLogin = async (req, res) => {
     } else {
       logger.info(`Creating new user for ${email} through Google Register`);
       // Create New User
-      // Generate random password
-      const randomPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8);
+      // Generate secure random password
+      const crypto = require('crypto');
+      const randomPassword = crypto.randomBytes(24).toString('base64');
 
       // Split name
       const nameParts = name.split(' ');
@@ -206,7 +262,7 @@ exports.recordView = async (req, res) => {
           $slice: 20 // Keep last 20 views
         }
       }
-    }, { new: true });
+    }, { returnDocument: 'after' });
 
     res.status(200).json(user.recentlyViewed);
   } catch (error) {
@@ -227,7 +283,7 @@ exports.addAddress = async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { $push: { addresses: newAddress } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!user) return res.status(404).json({ message: "User not found" });
     res.status(201).json(user.addresses);
@@ -247,17 +303,16 @@ exports.updateAvatar = async (req, res) => {
         const user = await User.findById(req.user._id);
         if (!user) return res.status(404).json({ message: "User not found" });
 
-        // --- CLOUDINARY CLEANUP ---
-        // Delete old avatar if it's a Cloudinary URL
+        // --- MEDIA CLEANUP ---
         if (user.avatar) {
-            const oldPublicId = extractPublicId(user.avatar);
-            if (oldPublicId) {
-                deleteFromCloudinary(oldPublicId).catch(err => console.error("Cloudinary Delete Error (Old Avatar):", err));
+            const oldId = extractMediaId(user.avatar);
+            if (oldId) {
+                deleteMedia(oldId, getResourceType(user.avatar)).catch(err => console.error("Media Service Delete Error (Old Avatar):", err));
             }
         }
         // -------------------------
 
-        const result = await uploadToCloudinary(req.file.buffer, 'avatars');
+        const result = await uploadMedia(req.file.buffer, 'avatars', req.file.originalname);
         user.avatar = result.secure_url;
         await user.save();
 
@@ -279,7 +334,7 @@ exports.removeAddress = async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { $pull: { addresses: { _id: req.params.id } } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!user) return res.status(404).json({ message: "User not found" });
     res.status(200).json(user.addresses);
@@ -425,7 +480,7 @@ const syncUserLoyalty = async (userId, forceSync = false) => {
 exports.getUserProfile = async (req, res) => {
   try {
     // SYNC LOYALTY (Throttled internally, non-blocking for better UX)
-    syncUserLoyalty(req.user._id).catch(err => console.error("Async Loyalty Sync Fail:", err));
+    // syncUserLoyalty(req.user._id).catch(err => console.error("Async Loyalty Sync Fail:", err));
 
     // Fetch user with essential fields and populated wishlist
     const user = await User.findById(req.user._id)
@@ -437,8 +492,8 @@ exports.getUserProfile = async (req, res) => {
     // 1. SELF-HEALING CART/WISHLIST (Targeted Updates - Throttled)
     // Only heal if cart exists and it's been a while (or first time)
     if (user.cart && user.cart.length > 0) {
-      const Product = require('../models/Product');
       const validCart = [];
+
       let cartModified = false;
       
       // Filter out items that explicitly have null product field first (no DB check needed)
@@ -534,7 +589,7 @@ exports.addCard = async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { $push: { savedCards: newCard } },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!user) return res.status(404).json({ message: "User not found" });
@@ -553,7 +608,7 @@ exports.removeCard = async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.user._id,
       { $pull: { savedCards: { _id: req.params.id } } },
-      { new: true }
+      { returnDocument: 'after' }
     );
     if (!user) return res.status(404).json({ message: "User not found" });
     res.status(200).json(user.savedCards);
@@ -609,11 +664,11 @@ exports.deleteUser = async (req, res) => {
   try {
     const user = await User.findById(req.params.id);
     if (user) {
-      // --- CLOUDINARY CLEANUP ---
+      // --- MEDIA CLEANUP ---
       if (user.avatar) {
-        const publicId = extractPublicId(user.avatar);
-        if (publicId) {
-          deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (User Avatar):", err));
+        const mediaId = extractMediaId(user.avatar);
+        if (mediaId) {
+          deleteMedia(mediaId, getResourceType(user.avatar)).catch(err => console.error("Media Service Delete Error (User Avatar):", err));
         }
       }
       // -------------------------
@@ -682,7 +737,7 @@ exports.updateUserRole = async (req, res) => {
     }
 
     // Use findByIdAndUpdate to bypass strict validation on other fields
-    const updatedUser = await User.findByIdAndUpdate(req.params.id, update, { new: true });
+    const updatedUser = await User.findByIdAndUpdate(req.params.id, update, { returnDocument: 'after' });
 
     console.log("User updated successfully:", updatedUser.role, updatedUser.permissions, updatedUser.isAdmin);
     res.json(updatedUser);
@@ -1015,6 +1070,70 @@ exports.updateAvatar = async (req, res) => {
   } catch (error) {
     console.error('Update Avatar Error:', error);
     res.status(500).json({ message: 'Failed to update avatar' });
+  }
+};
+
+// @desc    Update user coins (Admin)
+// @route   PUT /api/users/:id/coins
+// @access  Private/Admin
+exports.updateUserCoins = async (req, res) => {
+  try {
+    const { amount, type, description } = req.body;
+    const user = await User.findById(req.params.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+
+    // Create transaction
+    await LoyaltyTransaction.create({
+      user: user._id,
+      type: type || 'bonus', // 'earn', 'spend', 'bonus', 'refund', 'expire'
+      amount: Math.abs(amount),
+      description: description || 'Admin adjustment',
+      referenceModel: 'User',
+      referenceId: req.user._id // Admin who performed the action
+    });
+
+    // Update user balance
+    if (type === 'spend' || type === 'expire') {
+      user.loyaltyPoints = Math.max(0, user.loyaltyPoints - Math.abs(amount));
+    } else {
+      user.loyaltyPoints += Math.abs(amount);
+    }
+
+    await user.save();
+    res.json({ message: 'Coins updated successfully', loyaltyPoints: user.loyaltyPoints });
+  } catch (error) {
+    console.error("ADMIN COIN UPDATE ERROR:", error);
+    res.status(500).json({ message: 'Failed to update coins' });
+  }
+};
+
+// @desc    Get all loyalty transactions (Admin)
+// @route   GET /api/users/admin/loyalty-transactions
+// @access  Private/Admin
+exports.getAllLoyaltyTransactions = async (req, res) => {
+  try {
+    const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+    const pageSize = Number(req.query.pageSize) || 20;
+    const page = Number(req.query.page) || 1;
+
+    const count = await LoyaltyTransaction.countDocuments();
+    const transactions = await LoyaltyTransaction.find()
+      .populate('user', 'firstName lastName email')
+      .limit(pageSize)
+      .skip(pageSize * (page - 1))
+      .sort({ createdAt: -1 });
+
+    res.json({
+      transactions,
+      page,
+      pages: Math.ceil(count / pageSize),
+      total: count
+    });
+  } catch (error) {
+    console.error("ADMIN COIN HISTORY ERROR:", error);
+    res.status(500).json({ message: 'Failed to fetch transactions' });
   }
 };
 

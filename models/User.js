@@ -8,7 +8,9 @@ const userSchema = new mongoose.Schema({
   phone: { type: String, required: false },
   password: { type: String, required: true },
   role: { type: String, enum: ['customer', 'admin', 'manager', 'delivery', 'client_support_executive', 'digital_marketing_executive'], default: 'customer' }, // NEW: Role Management
-  isBlocked: { type: Boolean, default: false }, // NEW: Block User
+  isBlocked: { type: Boolean, default: false },
+  isDeleted: { type: Boolean, default: false }, // NEW: Soft delete support
+  tokenVersion: { type: Number, default: 0 }, // NEW: For global logout/token invalidation
   isAdmin: { type: Boolean, required: true, default: false },
   isSuperAdmin: { type: Boolean, default: false }, // Full Access
   loyaltyPoints: { type: Number, default: 0 }, // NEW: Loyalty Program
@@ -92,12 +94,14 @@ const userSchema = new mongoose.Schema({
   chatEnabledUntil: { type: Date }
 }, { timestamps: true });
 
-userSchema.index({ email: 1 });
 userSchema.index({ createdAt: -1 });
+// userSchema.index({ email: 1 }); // Already unique: true above
+
 
 userSchema.pre('save', async function () {
   if (!this.isModified('password')) return;
-  const salt = await bcrypt.genSalt(10);
+  // Upgrade to Enterprise Standard: 12 rounds
+  const salt = await bcrypt.genSalt(12);
   this.password = await bcrypt.hash(this.password, salt);
 });
 

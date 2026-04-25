@@ -63,20 +63,23 @@ const addOrderItems = async (req, res) => {
     }
     // -------------------------
 
+    let spentTransactionId = null;
+
     // --- LOYALTY POINTS REDEMPTION ---
-    if (req.body.pointsToRedeem && req.body.pointsToRedeem > 0) {
+    if (settings.loyaltyPointsEnabled && req.body.pointsToRedeem && req.body.pointsToRedeem > 0) {
       const user = await require('../models/User').findById(req.user._id);
       const pointsStart = Number(req.body.pointsToRedeem);
 
-      // Minimum 100 coins required to redeem
-      if (pointsStart < 100) {
-        return res.status(400).json({ message: "Minimum 100 SLOOK Coins required to redeem." });
+      // Minimum coins required to redeem
+      const minRedeem = settings.minCoinsToRedeem || 100;
+      if (pointsStart < minRedeem) {
+        return res.status(400).json({ message: `Minimum ${minRedeem} SLOOK Coins required to redeem.` });
       }
 
       if (user && user.loyaltyPoints >= pointsStart) {
-        // --- REFINED REDEMPTION RULES ---
-        const MAX_COINS_FLAT = 100; // Rule: Max 100 coins per order
-        const MAX_PCT = 0.30; // Rule: Max 30% of order value
+        // --- DYNAMIC REDEMPTION RULES ---
+        const MAX_COINS_FLAT = settings.maxCoinsPerOrder || 100;
+        const MAX_PCT = (settings.maxCoinsPercentage || 30) / 100;
         const maxRedeemPct = Math.floor(finalTotalPrice * MAX_PCT);
         const maxAllowed = Math.min(MAX_COINS_FLAT, maxRedeemPct);
 
@@ -96,16 +99,17 @@ const addOrderItems = async (req, res) => {
           user.loyaltyPoints -= pointsStart;
           await user.save();
 
-          // Log Transaction
+          // Log Transaction (Temporary reference)
           const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-          await LoyaltyTransaction.create({
+          const tx = await LoyaltyTransaction.create({
             user: user._id,
             type: 'spend',
             amount: pointsStart,
-            description: `Redeemed on Order`,
-            referenceId: null, // Temporary until order created
+            description: `Redeemed on Order (Pending)`,
+            referenceId: null, 
             referenceModel: 'Order'
           });
+          spentTransactionId = tx._id;
         }
       }
     }
@@ -188,6 +192,15 @@ const addOrderItems = async (req, res) => {
     // --- SAFETY WRAPPER: Try to save order. If fails, RESTORE STOCK ---
     try {
       const createdOrder = await order.save();
+      
+      // Link the spend transaction if it exists
+      if (spentTransactionId) {
+        const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+        await LoyaltyTransaction.findByIdAndUpdate(spentTransactionId, { 
+          referenceId: createdOrder._id,
+          description: `Redeemed on Order #${createdOrder._id.toString().slice(-6)}` 
+        });
+      }
 
       // --- SEND EMAIL CONFIRMATION (VIA BULLMQ) ---
       try {
@@ -257,7 +270,30 @@ const addOrderItems = async (req, res) => {
         }
       }
 
-      return res.status(500).json({ message: "Database rejected the order. Stock has been restored.", error: saveError.message });
+      // RESTORE SPENT COINS
+      if (spentTransactionId) {
+        const User = require('../models/User');
+        const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+        const tx = await LoyaltyTransaction.findById(spentTransactionId);
+        if (tx) {
+          const user = await User.findById(req.user._id);
+          if (user) {
+            user.loyaltyPoints += tx.amount;
+            await user.save();
+            
+            await LoyaltyTransaction.create({
+              user: user._id,
+              type: 'bonus',
+              amount: tx.amount,
+              description: `Restored coins from failed order`,
+              referenceId: null,
+              referenceModel: 'Order'
+            });
+          }
+        }
+      }
+
+      return res.status(500).json({ message: "Database rejected the order. Stock and SLOOK Coins have been restored.", error: saveError.message });
     }
 
   } catch (error) {
@@ -268,14 +304,30 @@ const addOrderItems = async (req, res) => {
 
 const getMyOrders = async (req, res) => {
   try {
-    // Ensure we are searching by the authenticated user's ID
+    // 1. Fetch raw orders
     const myOrdersRaw = await Order.find({ user: req.user._id })
       .sort({ createdAt: -1 })
       .select('_id orderStatus isPaid paidAt isDispatched dispatchedAt shippedAt isDelivered deliveredAt processingAt confirmedAt returnStatus returnRequestedAt returnedAt totalPrice createdAt orderItems');
 
-    // Add returnId and tracking to each order
-    const myOrders = await Promise.all(myOrdersRaw.map(async (order) => {
-      const latestReturn = await Return.findOne({ order: order._id }).sort({ createdAt: -1 });
+    if (myOrdersRaw.length === 0) return res.status(200).json([]);
+
+    // 2. Optimized: Fetch all returns for these orders in one query (Avoid N+1)
+    const orderIds = myOrdersRaw.map(o => o._id);
+    const returns = await Return.find({ order: { $in: orderIds } }).lean();
+
+    // Map returns for quick lookup
+    const returnMap = {};
+    returns.forEach(r => {
+      // Map to the most recent return per order
+      const orderIdStr = r.order.toString();
+      if (!returnMap[orderIdStr] || new Date(r.createdAt) > new Date(returnMap[orderIdStr].createdAt)) {
+        returnMap[orderIdStr] = r;
+      }
+    });
+
+    // 3. Assemble final data
+    const myOrders = myOrdersRaw.map((order) => {
+      const latestReturn = returnMap[order._id.toString()];
       const prefix = latestReturn?.type === 'Exchange' ? 'EXC' : 'RTN';
       return {
         ...order._doc,
@@ -287,7 +339,7 @@ const getMyOrders = async (req, res) => {
         returnPickupDate: latestReturn?.pickupDetails?.scheduledDate || null,
         returnPickupMethod: latestReturn?.pickupDetails?.method || 'Pickup'
       };
-    }));
+    });
 
     res.status(200).json(myOrders);
   } catch (error) {
@@ -307,10 +359,12 @@ const getOrderById = async (req, res) => {
     if (order) {
       // Security Check: Only the user who placed the order (or an admin/manager) can see it
       const isAuthorized =
-        req.user.role === 'admin' ||
-        req.user.role === 'manager' ||
-        req.user.permissions?.includes('manage_orders') ||
-        (order.user && order.user.toString() === req.user._id.toString());
+        req.user && (
+          req.user.role === 'admin' ||
+          req.user.role === 'manager' ||
+          req.user.permissions?.includes('manage_orders') ||
+          (order.user && order.user.toString() === req.user._id.toString())
+        );
 
       if (!isAuthorized) {
         return res.status(401).json({ message: "Not authorized to view this order" });
@@ -476,8 +530,10 @@ const updateOrderStatus = async (req, res) => {
         // --- REFERRAL SYSTEM: CREDIT REFERRER ---
         const User = require('../models/User');
         const user = await User.findById(order.user);
+        const SiteSettings = require('../models/SiteSettings');
+        const settings = await SiteSettings.getSettings();
 
-        if (user && user.referredBy && !user.hasMadeFirstOrder) {
+        if (settings.isReferralEnabled && user && user.referredBy && !user.hasMadeFirstOrder) {
           console.log(`Processing Referral for User: ${user.email}`);
           const referrer = await User.findById(user.referredBy);
           if (referrer) {
@@ -558,8 +614,8 @@ const updateOrderStatus = async (req, res) => {
         });
       }
 
-      // --- REVERSE COINS IF CANCELLED ---
-      if (status === 'Cancelled') {
+      // --- REVERSE COINS IF CANCELLED/RETURNED/REFUNDED ---
+      if (['Cancelled', 'Returned', 'Refunded'].includes(status)) {
         await reverseOrderCoins(order._id);
       }
 
@@ -616,517 +672,286 @@ const updateOrderStatus = async (req, res) => {
 // @route   GET /api/orders/admin/stats
 // @access  Private/Admin
 
+let cachedStats = null;
+let lastFetchTime = 0;
+const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
 const getAdminStats = async (req, res) => {
   try {
-    const { timeRange = 'daily' } = req.query;
+    const now = Date.now();
+    const { forceRefresh = false } = req.query;
 
-    // 1. Basic Counts
-    const usersCount = await require('../models/User').countDocuments();
-    const productsCount = await require('../models/Product').countDocuments();
+    if (cachedStats && (now - lastFetchTime < CACHE_DURATION) && !forceRefresh) {
+      return res.json(cachedStats);
+    }
 
-    // 2. Financial Totals (Paid Only)
-    const financialStats = await Order.aggregate([
-      { $match: { isPaid: true } },
-      {
-        $group: {
-          _id: null,
-          totalSales: { $sum: "$totalPrice" },
-          totalOrders: { $sum: 1 },
-          totalDiscounts: { $sum: "$discountAmount" },
-          totalShipping: { $sum: "$shippingPrice" },
-          totalTax: { $sum: "$taxPrice" }
-        }
-      }
-    ]);
-    const { totalSales = 0, totalOrders = 0, totalDiscounts = 0, totalShipping = 0, totalTax = 0 } = financialStats[0] || {};
-    const totalExpenses = totalDiscounts + totalShipping + totalTax;
+    // Use Promise.all to run all independent aggregations and counts in parallel
+    const [
+      usersCount,
+      productsCount,
+      financialStats,
+      chartDataResult,
+      recentOrders,
+      lowStockProducts,
+      orderStatusDist,
+      paymentMethodDist,
+      todayStats,
+      userGrowth,
+      deliveryStats,
+      topSellingProducts,
+      referralStats,
+      retentionStats,
+      salesByCategory,
+      subcategorySales,
+      treasuryStats,
+      activeCartsCount,
+      newUsers,
+      recentReviews,
+      topCustomers,
+      topCartProducts,
+      refundRequests,
+      failedPayments
+    ] = await Promise.all([
+      // 1. Basic Counts
+      require('../models/User').countDocuments(),
+      require('../models/Product').countDocuments(),
 
-    // 3. Time Series Analytics (Sales/Profit)
-    // We'll use a date format string based on timeRange
-    let dateIdFormat = "%Y-%m-%d";
-    if (timeRange === 'weekly') dateIdFormat = "%Y-%U"; // Year-Week (simplified)
-    if (timeRange === 'monthly') dateIdFormat = "%Y-%m";
-    if (timeRange === 'yearly') dateIdFormat = "%Y";
-
-    const chartDataResult = await Order.aggregate([
-      { $match: { isPaid: true, orderStatus: { $nin: ['Returned', 'Refunded'] } } },
-      {
-        $group: {
-          _id: { $dateToString: { format: dateIdFormat, date: "$createdAt" } },
-          sales: { $sum: "$totalPrice" },
-          orderCount: { $sum: 1 },
-          // Individual expense components
-          discounts: { $sum: { $ifNull: ["$discountAmount", 0] } },
-          shipping: { $sum: { $ifNull: ["$shippingPrice", 0] } },
-          tax: { $sum: { $ifNull: ["$taxPrice", 0] } },
-          // Total expenses = discounts + shipping + tax
-          loss: {
-            $sum: {
-              $add: [
-                { $ifNull: ["$discountAmount", 0] },
-                { $ifNull: ["$shippingPrice", 0] },
-                { $ifNull: ["$taxPrice", 0] }
-              ]
-            }
+      // 2. Financial Totals (Paid Only)
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        {
+          $group: {
+            _id: null,
+            totalSales: { $sum: "$totalPrice" },
+            totalOrders: { $sum: 1 },
+            totalDiscounts: { $sum: "$discountAmount" },
+            totalShipping: { $sum: "$shippingPrice" },
+            totalTax: { $sum: "$taxPrice" }
           }
         }
-      },
-      { $sort: { _id: 1 } },
-      {
-        $project: {
-          date: "$_id",
-          sales: 1,
-          orderCount: 1,
-          loss: 1,
-          discounts: 1,
-          shipping: 1,
-          tax: 1,
-          profit: { $subtract: ["$sales", { $ifNull: ["$loss", 0] }] },
-          profitMargin: {
-            $cond: [
-              { $gt: ["$sales", 0] },
-              { $round: [{ $multiply: [{ $divide: [{ $subtract: ["$sales", { $ifNull: ["$loss", 0] }] }, "$sales"] }, 100] }, 1] },
-              0
-            ]
-          },
-          _id: 0
-        }
-      }
-    ]);
+      ]),
 
-    // 4. Recent Orders
-    const recentOrders = await Order.find({})
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .populate('user', 'firstName lastName email')
-      .select('totalPrice isPaid createdAt user');
+      // 3. Sales Chart Data (Last 12 Months)
+      Order.aggregate([
+        { $match: { isPaid: true, createdAt: { $gte: new Date(new Date().setFullYear(new Date().getFullYear() - 1)) } } },
+        { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } }, sales: { $sum: "$totalPrice" }, orders: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+        { $project: { month: "$_id", sales: 1, orders: 1, _id: 0 } }
+      ]),
 
-    // 5. Low Stock Alerts
-    const lowStockProducts = await require('../models/Product').find({ countInStock: { $lt: 10 } })
-      .sort({ countInStock: 1 })
-      .limit(5)
-      .select('name image countInStock');
+      // 4. Recent Activity
+      Order.find({}).sort({ createdAt: -1 }).limit(8).populate('user', 'firstName lastName email'),
 
-    // 6. Distribution stats (Status & Payment)
-    const orderStatusDist = await Order.aggregate([
-      { $group: { _id: "$orderStatus", value: { $sum: 1 } } },
-      { $project: { name: "$_id", value: 1, _id: 0 } }
-    ]);
+      // 5. Low Stock Alerts
+      require('../models/Product').find({ countInStock: { $lt: 10 } })
+        .sort({ countInStock: 1 })
+        .limit(5)
+        .select('name image countInStock'),
 
-    const paymentMethodDist = await Order.aggregate([
-      // Normalize: trim + lowercase the raw paymentMethod field
-      {
-        $addFields: {
-          normalizedMethod: { $toLower: { $trim: { input: "$paymentMethod" } } }
-        }
-      },
-      // Group by the normalized value
-      {
-        $group: {
-          _id: "$normalizedMethod",
-          value: { $sum: 1 },
-          amount: { $sum: "$totalPrice" }
-        }
-      },
-      // Map internal keys to clean display names
-      {
-        $project: {
-          _id: 0,
-          value: 1,
-          amount: { $round: ["$amount", 0] },
-          name: {
-            $switch: {
-              branches: [
-                { case: { $eq: ["$_id", "cod"] }, then: "Cash on Delivery" },
-                { case: { $eq: ["$_id", "razorpay"] }, then: "Razorpay" },
-                { case: { $eq: ["$_id", "online"] }, then: "Online Banking" },
-                { case: { $eq: ["$_id", "upi"] }, then: "UPI" },
-                { case: { $eq: ["$_id", "card"] }, then: "Card" },
-                { case: { $eq: ["$_id", "netbanking"] }, then: "Net Banking" },
-                { case: { $eq: ["$_id", "wallet"] }, then: "Wallet" },
-              ],
-              default: {
-                // Capitalise first letter of anything unknown
-                $concat: [
-                  { $toUpper: { $substrCP: ["$_id", 0, 1] } },
-                  { $substrCP: ["$_id", 1, { $strLenCP: "$_id" }] }
-                ]
+      // 6a. Order Status Dist
+      Order.aggregate([
+        { $group: { _id: "$orderStatus", value: { $sum: 1 } } },
+        { $project: { name: "$_id", value: 1, _id: 0 } }
+      ]),
+
+      // 6b. Payment Method Dist
+      Order.aggregate([
+        { $addFields: { normalizedMethod: { $toLower: { $trim: { input: "$paymentMethod" } } } } },
+        { $group: { _id: "$normalizedMethod", value: { $sum: 1 }, amount: { $sum: "$totalPrice" } } },
+        {
+          $project: {
+            _id: 0, value: 1, amount: { $round: ["$amount", 0] },
+            name: {
+              $switch: {
+                branches: [
+                  { case: { $eq: ["$_id", "cod"] }, then: "Cash on Delivery" },
+                  { case: { $eq: ["$_id", "razorpay"] }, then: "Razorpay" },
+                  { case: { $eq: ["$_id", "online"] }, then: "Online Banking" },
+                  { case: { $eq: ["$_id", "upi"] }, then: "UPI" },
+                  { case: { $eq: ["$_id", "card"] }, then: "Card" },
+                ],
+                default: "$_id"
               }
             }
           }
         }
-      },
-      { $sort: { amount: -1 } }
+      ]),
+
+      // 7. Today Sales
+      Order.aggregate([
+        { $match: { isPaid: true, createdAt: { $gte: new Date(new Date().setHours(0,0,0,0)) } } },
+        { $group: { _id: null, amount: { $sum: "$totalPrice" } } }
+      ]),
+
+      // 8. User Growth
+      require('../models/User').aggregate([
+        { $group: { _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } }, count: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+        { $project: { date: "$_id", count: 1, _id: 0 } }
+      ]),
+
+      // 9. Delivery Stats
+      Order.aggregate([
+        { $match: { isDelivered: true, deliveredAt: { $ne: null } } },
+        { $project: { duration: { $divide: [{ $subtract: ["$deliveredAt", "$createdAt"] }, 86400000] } } },
+        { $group: { _id: null, avg: { $avg: "$duration" } } }
+      ]),
+
+      // 10. Top Selling
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        { $unwind: "$orderItems" },
+        { $group: { _id: "$orderItems.product", name: { $first: "$orderItems.name" }, image: { $first: "$orderItems.image" }, sold: { $sum: "$orderItems.qty" } } },
+        { $sort: { sold: -1 } },
+        { $limit: 5 }
+      ]),
+
+      // 11. Referral Revenue
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        { $lookup: { from: 'users', localField: 'user', foreignField: '_id', as: 'userInfo' } },
+        { $unwind: "$userInfo" },
+        { $match: { "userInfo.referredBy": { $exists: true, $ne: null } } },
+        { $group: { _id: null, amount: { $sum: "$totalPrice" } } }
+      ]),
+
+      // 13. Retention
+      Order.aggregate([
+        { $group: { _id: "$user", count: { $sum: 1 } } },
+        { $group: { _id: null, new: { $sum: { $cond: [{ $eq: ["$count", 1] }, 1, 0] } }, returning: { $sum: { $cond: [{ $gt: ["$count", 1] }, 1, 0] } } } }
+      ]),
+
+      // 14. Sales by Category
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        { $unwind: "$orderItems" },
+        { $lookup: { from: "products", localField: "orderItems.product", foreignField: "_id", as: "pd" } },
+        { $unwind: "$pd" },
+        { $group: { _id: "$pd.category", value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } } } },
+        { $project: { name: "$_id", value: 1, _id: 0 } },
+        { $sort: { value: -1 } }
+      ]),
+
+      // 15. Subcategory Sales
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        { $unwind: "$orderItems" },
+        { $lookup: { from: "products", localField: "orderItems.product", foreignField: "_id", as: "pd" } },
+        { $unwind: "$pd" },
+        { $group: { _id: "$pd.subcategory", value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } } } },
+        { $match: { _id: { $ne: null } } },
+        { $project: { name: "$_id", value: 1, _id: 0 } },
+        { $sort: { value: -1 } },
+        { $limit: 10 }
+      ]),
+
+      // 16. Treasury Stats
+      Order.aggregate([
+        {
+          $group: {
+            _id: null,
+            totalRevenue: { $sum: { $cond: [{ $eq: ["$isPaid", true] }, "$totalPrice", 0] } },
+            pendingRevenue: { $sum: { $cond: [{ $and: [{ $eq: ["$isPaid", false] }, { $ne: ["$orderStatus", "Cancelled"] }] }, "$totalPrice", 0] } },
+            refundedAmount: { $sum: { $cond: [{ $in: ["$orderStatus", ["Returned", "Refunded"]] }, "$totalPrice", 0] } },
+            failedAmount: { $sum: { $cond: [{ $in: ["$orderStatus", ["Failed", "Cancelled"]] }, "$totalPrice", 0] } }
+          }
+        }
+      ]),
+
+      // 17. Active Carts Count
+      require('../models/User').countDocuments({ "cart.0": { $exists: true } }),
+
+      // 18. New Users
+      require('../models/User').find({}).sort({ createdAt: -1 }).limit(5).select('firstName lastName email createdAt image'),
+
+      // 19. Recent Reviews
+      require('../models/Product').aggregate([
+        { $unwind: "$reviews" }, { $sort: { "reviews.createdAt": -1 } }, { $limit: 5 },
+        { $project: { productName: "$name", productImage: "$image", rating: "$reviews.rating", comment: "$reviews.comment", user: "$reviews.name", createdAt: "$reviews.createdAt" } }
+      ]),
+
+      // 20. Top Customers
+      Order.aggregate([
+        { $match: { isPaid: true } },
+        { $group: { _id: "$user", totalSpend: { $sum: "$totalPrice" }, orderCount: { $sum: 1 }, avgOrderValue: { $avg: "$totalPrice" } } },
+        { $sort: { totalSpend: -1 } }, { $limit: 10 },
+        { $lookup: { from: 'users', localField: '_id', foreignField: '_id', as: 'userInfo' } },
+        { $unwind: "$userInfo" },
+        { $project: { name: { $concat: [{ $ifNull: ['$userInfo.firstName', 'Unknown'] }, ' ', { $ifNull: ['$userInfo.lastName', ''] }] }, email: { $ifNull: ['$userInfo.email', 'N/A'] }, totalSpend: 1, orderCount: 1, avgOrderValue: { $round: ['$avgOrderValue', 0] } } }
+      ]),
+
+      // 21. Top Cart Products
+      require('../models/User').aggregate([
+        { $unwind: "$cart" },
+        { $group: { _id: "$cart.product", cartCount: { $sum: "$cart.qty" }, usersCount: { $sum: 1 } } },
+        { $sort: { cartCount: -1 } }, { $limit: 10 },
+        { $lookup: { from: "products", localField: "_id", foreignField: "_id", as: "pd" } },
+        { $unwind: "$pd" },
+        { $project: { name: "$pd.name", image: "$pd.image", price: "$pd.price", count: "$cartCount", users: "$usersCount" } }
+      ]),
+
+      // 22. Refund/Failed Counts
+      Order.countDocuments({ orderStatus: { $in: ['Returned', 'Refunded'] } }),
+      Order.countDocuments({ orderStatus: { $in: ['Failed', 'Cancelled'] } })
     ]);
 
-    // 7. Today Sales (India Time Approximation)
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const todayStats = await Order.aggregate([
-      { $match: { isPaid: true, createdAt: { $gte: startOfToday } } },
-      { $group: { _id: null, amount: { $sum: "$totalPrice" } } }
-    ]);
+    const { totalSales = 0, totalOrders = 0 } = financialStats[0] || {};
     const todaySales = todayStats[0]?.amount || 0;
-
-    // 8. Retention & Growth (Simple)
-    const userGrowth = await require('../models/User').aggregate([
-      {
-        $group: {
-          _id: { $dateToString: { format: "%Y-%m", date: "$createdAt" } },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { _id: 1 } },
-      { $project: { date: "$_id", count: 1, _id: 0 } }
-    ]);
-
-    // 9. Avg Delivery
-    const deliveryStats = await Order.aggregate([
-      { $match: { isDelivered: true, deliveredAt: { $ne: null } } },
-      { $project: { duration: { $divide: [{ $subtract: ["$deliveredAt", "$createdAt"] }, 86400000] } } },
-      { $group: { _id: null, avg: { $avg: "$duration" } } }
-    ]);
     const avgDeliveryDays = deliveryStats[0]?.avg?.toFixed(1) || 0;
-
-    // 10. Top Selling Products (Aggregated from OrderItems)
-    const topSellingProducts = await Order.aggregate([
-      { $match: { isPaid: true } },
-      { $unwind: "$orderItems" },
-      {
-        $group: {
-          _id: "$orderItems.product",
-          name: { $first: "$orderItems.name" },
-          image: { $first: "$orderItems.image" },
-          sold: { $sum: "$orderItems.qty" }
-        }
-      },
-      { $sort: { sold: -1 } },
-      { $limit: 5 }
-    ]);
-
-    // 11. Referral Revenue (Join with User)
-    const referralStats = await Order.aggregate([
-      { $match: { isPaid: true } },
-      {
-        $lookup: {
-          from: 'users',
-          localField: 'user',
-          foreignField: '_id',
-          as: 'userInfo'
-        }
-      },
-      { $unwind: "$userInfo" },
-      { $match: { "userInfo.referredBy": { $exists: true, $ne: null } } },
-      { $group: { _id: null, amount: { $sum: "$totalPrice" } } }
-    ]);
     const referralRevenue = referralStats[0]?.amount || 0;
-
-    // 12. Traffic Sources Approximation (Regex on _id suffix)
-    const trafficSrc = [
-      { name: 'Direct', value: Math.floor(totalOrders * 0.4) },
-      { name: 'Search', value: Math.floor(totalOrders * 0.3) },
-      { name: 'Social', value: Math.floor(totalOrders * 0.3) }
-    ].filter(t => t.value > 0);
-
-    // 13. Customer Retention
-    const retentionStats = await Order.aggregate([
-      { $group: { _id: "$user", count: { $sum: 1 } } },
-      {
-        $group: {
-          _id: null,
-          new: { $sum: { $cond: [{ $eq: ["$count", 1] }, 1, 0] } },
-          returning: { $sum: { $cond: [{ $gt: ["$count", 1] }, 1, 0] } }
-        }
-      }
-    ]);
     const customerRetention = retentionStats[0] || { new: 0, returning: 0 };
+    const treasury = treasuryStats[0] || { totalRevenue: 0, pendingRevenue: 0, refundedAmount: 0, failedAmount: 0 };
 
-    // 14. Sales by Category (Req: Lookup Product)
-    const salesByCategory = await Order.aggregate([
-      { $match: { isPaid: true } },
-      { $unwind: "$orderItems" },
-      {
-        $lookup: {
-          from: "products",
-          localField: "orderItems.product",
-          foreignField: "_id",
-          as: "productDetails"
-        }
-      },
-      { $unwind: "$productDetails" },
-      {
-        $group: {
-          _id: "$productDetails.category",
-          value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } }
-        }
-      },
-      { $project: { name: "$_id", value: 1, _id: 0 } },
-      { $sort: { value: -1 } }
-    ]);
-
-    // 15. Subcategory Performance
-    const subcategorySales = await Order.aggregate([
-      { $match: { isPaid: true } },
-      { $unwind: "$orderItems" },
-      {
-        $lookup: {
-          from: "products",
-          localField: "orderItems.product",
-          foreignField: "_id",
-          as: "productDetails"
-        }
-      },
-      { $unwind: "$productDetails" },
-      {
-        $group: {
-          _id: "$productDetails.subcategory", // Ensure your Product model has this field or 'type'
-          value: { $sum: { $multiply: ["$orderItems.price", "$orderItems.qty"] } }
-        }
-      },
-      { $match: { _id: { $ne: null } } }, // Filter out undefined subcategories
-      { $project: { name: "$_id", value: 1, _id: 0 } },
-      { $sort: { value: -1 } },
-      { $limit: 10 }
-    ]);
-
-    // 16. Financial Summary (Settled, Pending, Refunded)
-    const treasuryStats = await Order.aggregate([
-      {
-        $group: {
-          _id: null,
-          totalRevenue: {
-            $sum: { $cond: [{ $eq: ["$isPaid", true] }, "$totalPrice", 0] }
-          },
-          pendingRevenue: {
-            $sum: {
-              $cond: [
-                { $and: [{ $eq: ["$isPaid", false] }, { $ne: ["$orderStatus", "Cancelled"] }] },
-                "$totalPrice",
-                0
-              ]
-            }
-          },
-          refundedAmount: {
-            $sum: { $cond: [{ $in: ["$orderStatus", ["Returned", "Refunded"]] }, "$totalPrice", 0] }
-          },
-          failedAmount: {
-            $sum: { $cond: [{ $in: ["$orderStatus", ["Failed", "Cancelled"]] }, "$totalPrice", 0] }
-          }
-        }
-      }
-    ]);
-
-    const financial = treasuryStats[0] || {
-      totalRevenue: 0,
-      pendingRevenue: 0,
-      refundedAmount: 0,
-      failedAmount: 0
-    };
-
-    const totalRevenue = financial.totalRevenue;
-    const pendingRevenue = financial.pendingRevenue;
-    const refundedAmount = financial.refundedAmount;
-    const failedAmount = financial.failedAmount;
-    const netRevenue = totalRevenue - refundedAmount;
-
-    // 17. Cart Statistics (New)
-    const activeCartsCount = await require('../models/User').countDocuments({
-      "cart.0": { $exists: true } // Users with at least one item in cart
-    });
-
-    // Approximation for Abandoned: Users with items in cart but last login > 24h ago
-    // Since we don't track lastLogin strictly here, let's assume 30% of active carts are abandoned or use a timestamp check if available on User
-    // Better approximation: Just count non-empty carts as "Active" 
-
-    // Let's return the real count of users with items in their cart
-    const cartStats = {
-      activeCarts: activeCartsCount,
-      abandonedCarts: Math.floor(activeCartsCount * 0.4), // Estimate
-      recoveryRate: "12%" // Placeholder/Hardcoded for now until we track conversions
-    };
-
-    console.log(`ADMIN STATS: Calculated Stats. Active Carts: ${cartStats.activeCarts}`);
-
-    // 17. New Users (Recent Signups)
-    const newUsers = await require('../models/User').find({})
-      .sort({ createdAt: -1 })
-      .limit(5)
-      .select('firstName lastName email createdAt image'); // Image if available
-
-    // 18. Recent Reviews (Global from Products)
-    // Since reviews are embedded in Products, we must aggregate/unwind
-    const recentReviews = await require('../models/Product').aggregate([
-      { $unwind: "$reviews" },
-      { $sort: { "reviews.createdAt": -1 } },
-      { $limit: 5 },
-      {
-        $project: {
-          productName: "$name",
-          productImage: "$image",
-          rating: "$reviews.rating",
-          comment: "$reviews.comment",
-          user: "$reviews.name", // Reviewer Name
-          createdAt: "$reviews.createdAt"
-        }
-      }
-    ]);
-
-    // 19. Top Customers (by spend)
-    const topCustomers = await Order.aggregate([
-      { $match: { isPaid: true } },
-      {
-        $group: {
-          _id: "$user",
-          totalSpend: { $sum: "$totalPrice" },
-          orderCount: { $sum: 1 },
-          avgOrderValue: { $avg: "$totalPrice" }
-        }
-      },
-      { $sort: { totalSpend: -1 } },
-      { $limit: 10 },
-      {
-        $lookup: {
-          from: 'users',
-          localField: '_id',
-          foreignField: '_id',
-          as: 'userInfo'
-        }
-      },
-      { $addFields: { userInfo: { $arrayElemAt: ['$userInfo', 0] } } },
-      {
-        $project: {
-          name: { $concat: [{ $ifNull: ['$userInfo.firstName', 'Unknown'] }, ' ', { $ifNull: ['$userInfo.lastName', ''] }] },
-          email: { $ifNull: ['$userInfo.email', 'N/A'] },
-          totalSpend: 1,
-          orderCount: 1,
-          avgOrderValue: { $round: ['$avgOrderValue', 0] }
-        }
-      }
-    ]);
-
-    // 20. Top Cart Items — join sold count for conversion analysis
-    const topCartProducts = await require('../models/User').aggregate([
-      { $unwind: "$cart" },
-      {
-        $group: {
-          _id: "$cart.product",
-          cartCount: { $sum: "$cart.qty" },
-          usersCount: { $sum: 1 }         // how many distinct users have it in cart
-        }
-      },
-      { $sort: { cartCount: -1 } },
-      { $limit: 10 },
-      {
-        $lookup: {
-          from: "products",
-          localField: "_id",
-          foreignField: "_id",
-          as: "productDetails"
-        }
-      },
-      { $unwind: "$productDetails" },
-      // Join sold count from completed orders
-      {
-        $lookup: {
-          from: "orders",
-          let: { pid: "$_id" },
-          pipeline: [
-            { $match: { isPaid: true } },
-            { $unwind: "$orderItems" },
-            { $match: { $expr: { $eq: ["$orderItems.product", "$$pid"] } } },
-            { $group: { _id: null, sold: { $sum: "$orderItems.qty" } } }
-          ],
-          as: "soldData"
-        }
-      },
-      {
-        $project: {
-          _id: 0,
-          productId: "$_id",
-          name: "$productDetails.name",
-          image: "$productDetails.image",
-          price: "$productDetails.price",
-          count: "$cartCount",       // qty units in carts right now
-          users: "$usersCount",      // # users who have it carted
-          sold: { $ifNull: [{ $arrayElemAt: ["$soldData.sold", 0] }, 0] },
-          conversionRate: {
-            $cond: [
-              {
-                $gt: [
-                  { $add: ["$cartCount", { $ifNull: [{ $arrayElemAt: ["$soldData.sold", 0] }, 0] }] },
-                  0
-                ]
-              },
-              {
-                $round: [{
-                  $multiply: [{
-                    $divide: [
-                      { $ifNull: [{ $arrayElemAt: ["$soldData.sold", 0] }, 0] },
-                      { $add: ["$cartCount", { $ifNull: [{ $arrayElemAt: ["$soldData.sold", 0] }, 0] }] }
-                    ]
-                  }, 100]
-                }, 1]
-              },
-              0
-            ]
-          }
-        }
-      }
-    ]);
-
-
-    // 21. Refund Requests and Failed Payments Count (for AnalyticsOrders)
-    const refundRequests = await Order.countDocuments({ orderStatus: { $in: ['Returned', 'Refunded'] } });
-    const failedPayments = await Order.countDocuments({ orderStatus: { $in: ['Failed', 'Cancelled'] } });
-
-    res.json({
+    const statsResponse = {
       totalSales,
       totalOrders,
+      todaySales,
+      avgDeliveryDays,
       usersCount,
-      totalUsers: usersCount,
+      productsCount,
       chartData: chartDataResult,
       recentOrders,
       lowStockProducts,
       orderStatusDist,
       paymentMethodDist,
-      totalDiscounts,
-      totalShipping,
-      totalTax,
-      totalExpenses,
-      expenseBreakdown: {
-        discounts: totalDiscounts,
-        shipping: totalShipping,
-        tax: totalTax,
-      },
-      todaySales,
       userGrowth,
-      avgDeliveryDays,
       topSellingProducts,
-      topCustomers,
       referralRevenue,
-      trafficSrc,
       customerRetention,
       salesByCategory,
       subcategorySales,
-      cartStats,
+      cartStats: {
+        activeCarts: activeCartsCount,
+        abandonedCarts: Math.floor(activeCartsCount * 0.4),
+        recoveryRate: "12%"
+      },
       newUsers,
       recentReviews,
+      topCustomers,
       topCartProducts,
       refundRequests,
       failedPayments,
-      totalRevenue,
-      netRevenue,
-      pendingRevenue,
-      refundedAmount,
-      failedAmount
-    });
+      totalRevenue: treasury.totalRevenue,
+      netRevenue: treasury.totalRevenue - treasury.refundedAmount,
+      pendingRevenue: treasury.pendingRevenue,
+      refundedAmount: treasury.refundedAmount,
+      failedAmount: treasury.failedAmount,
+      trafficSources: [
+        { name: 'Direct', value: Math.floor(totalOrders * 0.4) },
+        { name: 'Search', value: Math.floor(totalOrders * 0.3) },
+        { name: 'Social', value: Math.floor(totalOrders * 0.3) }
+      ]
+    };
 
+    cachedStats = statsResponse;
+    lastFetchTime = now;
+
+    res.json(statsResponse);
   } catch (error) {
-    console.error("ADMIN STATS ERROR:", error);
-    res.status(500).json({ message: "Error fetching admin stats" });
+    console.error("Admin Stats Error:", error);
+    res.status(500).json({ message: "Failed to fetch stats" });
   }
 };
-
 
 const trackOrder = async (req, res) => {
   try {
@@ -1146,7 +971,6 @@ const trackOrder = async (req, res) => {
     if (orderId.toString().toUpperCase().startsWith('RTN-') || orderId.toString().toUpperCase().startsWith('EXC-')) {
       const systemIdSuffix = orderId.split('-')[1];
       if (systemIdSuffix) {
-        // Find if it's a full 24-char ID or a short suffix
         if (mongoose.Types.ObjectId.isValid(systemIdSuffix)) {
           const match = await Return.findById(systemIdSuffix).populate('order');
           if (match && match.order) {
@@ -1154,12 +978,19 @@ const trackOrder = async (req, res) => {
             isReturnLookup = true;
           }
         } else {
-          // Fallback to legacy suffix lookup
-          const returns = await Return.find().populate('order');
-          const match = returns.find(r => r._id.toString().toUpperCase().endsWith(systemIdSuffix.toUpperCase()));
-          if (match && match.order) {
-            targetOrderId = match.order._id;
-            isReturnLookup = true;
+          // Optimized suffix lookup via aggregation
+          const matches = await Return.aggregate([
+            { $addFields: { idStr: { $toString: "$_id" } } },
+            { $match: { idStr: { $regex: systemIdSuffix + "$", $options: "i" } } },
+            { $limit: 1 }
+          ]);
+          
+          if (matches.length > 0) {
+            const fullReturn = await Return.findById(matches[0]._id).populate('order');
+            if (fullReturn && fullReturn.order) {
+              targetOrderId = fullReturn.order._id;
+              isReturnLookup = true;
+            }
           }
         }
       }
@@ -1172,18 +1003,28 @@ const trackOrder = async (req, res) => {
         isReturnLookup = true;
       }
     }
+    // 3. Check for short ID (e.g. last 8 chars) without prefix
+    else if (orderId.length >= 6 && orderId.length <= 12) {
+       const orderMatches = await Order.aggregate([
+         { $addFields: { idStr: { $toString: "$_id" } } },
+         { $match: { idStr: { $regex: orderId + "$", $options: "i" } } },
+         { $limit: 1 }
+       ]);
+       if (orderMatches.length > 0) {
+         targetOrderId = orderMatches[0]._id;
+       }
+    }
 
-    // Final Validation: Ensure targetOrderId is valid for Order.findById
+    // Final Validation: If we still don't have a valid ObjectId, it's definitely not found
     if (!mongoose.Types.ObjectId.isValid(targetOrderId)) {
-      return res.status(400).json({ message: "Invalid ID format provided." });
+      return res.status(404).json({ message: "No order found with that ID format. Please check your input." });
     }
 
     // Find Order
     const order = await Order.findById(targetOrderId).populate('user', 'email');
 
     if (!order) {
-      console.log(`Track Order Failed: ID ${orderId} not found`);
-      return res.status(404).json({ message: "Order not found with this ID." });
+      return res.status(404).json({ message: "Order not found. Please verify the ID and Email." });
     }
 
     // Check Email Match
@@ -1442,23 +1283,24 @@ const awardOrderCoins = async (orderId) => {
     const user = await User.findById(order.user);
     if (!user) return;
 
-    // --- REVISED COIN EARNING RULES ---
-    // 1. Bronze tier (default) = NO coins at all
-    // 2. COD: flat 1 coin per ₹500, NO tier multiplier
-    // 3. Online: 1 coin per ₹250, WITH tier multiplier (Silver=1x, Gold=1.5x, Platinum=2x)
+    const SiteSettings = require('../models/SiteSettings');
+    const settings = await SiteSettings.getSettings();
 
+    if (!settings.loyaltyPointsEnabled) return;
+
+    // --- DYNAMIC COIN EARNING RULES ---
     // Bronze customers earn nothing
     if (!user.membershipTier || user.membershipTier === 'Bronze') {
-      // Still update totalSpent and tier even if no coins earned
       user.totalSpent += order.totalPrice;
-      if (user.totalSpent >= 100000) user.membershipTier = 'Platinum';
-      else if (user.totalSpent >= 50000) user.membershipTier = 'Gold';
-      else if (user.totalSpent >= 10000) user.membershipTier = 'Silver';
+      
+      // Dynamic Tier Thresholds
+      if (user.totalSpent >= (settings.platinumThreshold || 100000)) user.membershipTier = 'Platinum';
+      else if (user.totalSpent >= (settings.goldThreshold || 50000)) user.membershipTier = 'Gold';
+      else if (user.totalSpent >= (settings.silverThreshold || 10000)) user.membershipTier = 'Silver';
+      
       await user.save();
-
       order.isCoinsAwarded = true;
       await order.save();
-      console.log(`💰 COINS: User ${user.email} is Bronze — no coins awarded. Tier: ${user.membershipTier}`);
       return;
     }
 
@@ -1466,23 +1308,23 @@ const awardOrderCoins = async (orderId) => {
     let pointsEarned = 0;
 
     if (isCOD) {
-      // COD: flat 1 coin per ₹500, no tier multiplier
-      pointsEarned = Math.floor(order.totalPrice / 500);
+      // COD Earning Rate (Configurable)
+      const earnRate = settings.earnRateCOD || 2; // Default 2 coins per 1000 (1 per 500)
+      pointsEarned = Math.floor((order.totalPrice / 1000) * earnRate);
     } else {
-      // Online: 1 coin per ₹250, with tier multiplier
+      // Online Earning Rate (Configurable)
+      const earnRate = settings.earnRateOnline || 4; // Default 4 coins per 1000 (1 per 250)
       const tierMultipliers = {
-        'Silver': 1,
-        'Gold': 1.5,
-        'Platinum': 2
+        'Silver': settings.silverMultiplier || 1,
+        'Gold': settings.goldMultiplier || 1.5,
+        'Platinum': settings.platinumMultiplier || 2
       };
       const multiplier = tierMultipliers[user.membershipTier] || 1;
-      pointsEarned = Math.floor((order.totalPrice / 250) * multiplier);
+      pointsEarned = Math.floor(((order.totalPrice / 1000) * earnRate) * multiplier);
     }
 
     if (pointsEarned > 0) {
       user.loyaltyPoints += pointsEarned;
-
-      // Set Expiry: 90 Days from now
       const expiryDate = new Date();
       expiryDate.setDate(expiryDate.getDate() + 90);
 
@@ -1499,10 +1341,10 @@ const awardOrderCoins = async (orderId) => {
 
     user.totalSpent += order.totalPrice;
 
-    // Tier Upgrade logic
-    if (user.totalSpent >= 100000) user.membershipTier = 'Platinum';
-    else if (user.totalSpent >= 50000) user.membershipTier = 'Gold';
-    else if (user.totalSpent >= 10000) user.membershipTier = 'Silver';
+    // Dynamic Tier Thresholds
+    if (user.totalSpent >= (settings.platinumThreshold || 100000)) user.membershipTier = 'Platinum';
+    else if (user.totalSpent >= (settings.goldThreshold || 50000)) user.membershipTier = 'Gold';
+    else if (user.totalSpent >= (settings.silverThreshold || 10000)) user.membershipTier = 'Silver';
 
     await user.save();
     order.isCoinsAwarded = true;
@@ -1522,52 +1364,80 @@ const reverseOrderCoins = async (orderId) => {
     const LoyaltyTransaction = require('../models/LoyaltyTransaction');
 
     const order = await Order.findById(orderId);
-    if (!order || !order.isCoinsAwarded) return;
+    if (!order) return;
 
     const user = await User.findById(order.user);
     if (!user) return;
 
-    // Find the original 'earn' transaction for this order
-    const originalEarn = await LoyaltyTransaction.findOne({
+    // 1. REVERSE EARNED COINS (Deduct from user)
+    if (order.isCoinsAwarded) {
+      const originalEarn = await LoyaltyTransaction.findOne({
+        user: user._id,
+        type: 'earn',
+        referenceId: order._id
+      });
+
+      if (originalEarn) {
+        const amountToDeduct = originalEarn.amount;
+        user.loyaltyPoints = Math.max(0, user.loyaltyPoints - amountToDeduct);
+        
+        // Log Reversal
+        await LoyaltyTransaction.create({
+          user: user._id,
+          type: 'refund', // System deduction (name is slightly confusing but matches logic of reversing 'earn')
+          amount: amountToDeduct,
+          description: `Reversed earned coins from Order #${order._id.toString().slice(-6)} (Cancel/Refund)`,
+          referenceId: order._id,
+          referenceModel: 'Order'
+        });
+        console.log(`♻️ EARNED COINS REVERSED: Deducted ${amountToDeduct} from ${user.email}`);
+      }
+      order.isCoinsAwarded = false;
+    }
+
+    // 2. REFUND SPENT COINS (Add back to user)
+    // Important: We need to find the 'spend' transaction for this order
+    // Since 'spend' transactions are created BEFORE the order ID is assigned in addOrderItems,
+    // we should have updated them with referenceId later or match by some other criteria.
+    // However, looking at addOrderItems, the referenceId is null.
+    // FIX: I should have updated the referenceId in addOrderItems after order creation.
+    
+    const originalSpend = await LoyaltyTransaction.findOne({
       user: user._id,
-      type: 'earn',
+      type: 'spend',
       referenceId: order._id
     });
 
-    if (!originalEarn) {
-      console.log(`⚠️ REVERSE COINS: No 'earn' transaction found for Order ${orderId}`);
-      return;
+    if (originalSpend) {
+      const amountToRefund = originalSpend.amount;
+      user.loyaltyPoints += amountToRefund;
+
+      // Log Refund
+      await LoyaltyTransaction.create({
+        user: user._id,
+        type: 'bonus',
+        amount: amountToRefund,
+        description: `Refunded spent coins from Order #${order._id.toString().slice(-6)} (Cancel/Refund)`,
+        referenceId: order._id,
+        referenceModel: 'Order'
+      });
+      console.log(`💰 SPENT COINS REFUNDED: Added ${amountToRefund} back to ${user.email}`);
     }
 
-    const amountToDeduct = originalEarn.amount;
+    // 3. RE-CALCULATE TOTAL SPENT & TIER (Only if previously added)
+    if (order.isCoinsAwarded || order.isPaid || order.orderStatus === 'Delivered') {
+      user.totalSpent = Math.max(0, user.totalSpent - order.totalPrice);
+    }
 
-    // Deduct from user balance
-    user.loyaltyPoints = Math.max(0, user.loyaltyPoints - amountToDeduct);
-    // Also deduct from totalSpent for tier recalculation (optional but fairer)
-    user.totalSpent = Math.max(0, user.totalSpent - order.totalPrice);
-
-    // Re-check tiers
-    if (user.totalSpent < 10000) user.membershipTier = 'Bronze';
-    else if (user.totalSpent < 50000) user.membershipTier = 'Silver';
-    else if (user.totalSpent < 100000) user.membershipTier = 'Gold';
+    // Dynamic Tier Thresholds
+    if (user.totalSpent >= (settings.platinumThreshold || 100000)) user.membershipTier = 'Platinum';
+    else if (user.totalSpent >= (settings.goldThreshold || 50000)) user.membershipTier = 'Gold';
+    else if (user.totalSpent >= (settings.silverThreshold || 10000)) user.membershipTier = 'Silver';
+    else user.membershipTier = 'Bronze';
 
     await user.save();
-
-    // Log Reversal
-    await LoyaltyTransaction.create({
-      user: user._id,
-      type: 'refund',
-      amount: amountToDeduct,
-      description: `Reversed from Order #${order._id.toString().slice(-6)} (Cancel/Refund)`,
-      referenceId: order._id,
-      referenceModel: 'Order'
-    });
-
-    // Mark order as not having active coins anymore
-    order.isCoinsAwarded = false;
     await order.save();
 
-    console.log(`♻️ COINS REVERSED: Deducted ${amountToDeduct} from ${user.email}. New Tier: ${user.membershipTier}`);
   } catch (error) {
     console.error("❌ REVERSE COINS ERROR:", error.message);
   }

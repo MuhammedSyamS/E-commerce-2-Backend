@@ -10,6 +10,7 @@ const flashSaleSchema = mongoose.Schema({
 }, {
     timestamps: true
 });
+flashSaleSchema.index({ isActive: 1, startTime: 1, endTime: 1 });
 
 // Middleware to ensure only one sale is active at a time? 
 // For now, let's allow overlapping but maybe frontend only shows the one ending soonest.

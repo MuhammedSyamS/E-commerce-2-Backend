@@ -1,0 +1,7 @@
+{
+  "ignore": [
+    "logs/*",
+    "debug_otp.log"
+  ],
+  "ext": "js,json,env"
+}

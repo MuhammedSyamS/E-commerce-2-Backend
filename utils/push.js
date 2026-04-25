@@ -1,12 +1,15 @@
 const webpush = require('web-push');
+const vault = require('../config/vault');
 const User = require('../models/User');
 const Notification = require('../models/Notification');
 
-// CONFIGURE KEYS (Should ideally be env vars)
-const publicVapidKey = 'BBpKl_F-zOM-ujMnUcgudUiVjEIELl0oarZBM8tF9_HAn0bx_MUhxym_5anPaEA653crE40tnwxdAzo1HlIfIh4';
-const privateVapidKey = '8YJkTEUta_Pf27ti54Tf8RsgqP8a7h-XRPeMODLEcuw';
+// CONFIGURE KEYS (Using Vault for Security)
+const publicVapidKey = vault.VAPID_PUBLIC_KEY;
+const privateVapidKey = vault.VAPID_PRIVATE_KEY;
 
-webpush.setVapidDetails('mailto:admin@slook.com', publicVapidKey, privateVapidKey);
+if (publicVapidKey && privateVapidKey) {
+    webpush.setVapidDetails('mailto:admin@slook.com', publicVapidKey, privateVapidKey);
+}
 
 // Send to specific user
 exports.sendToUser = async (userId, title, message, data = {}) => {

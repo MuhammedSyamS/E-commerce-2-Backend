@@ -18,6 +18,8 @@ router.post('/cards', protect, userController.addCard);
 router.delete('/cards/:id', protect, userController.removeCard);
 
 // Profile
+// Profile
+router.get('/profile', protect, userController.getUserProfile);
 router.put('/profile', protect, userController.updateProfile);
 
 // Avatar Upload with Strict Security
@@ -68,6 +70,10 @@ router.get('/logs', protect, hasPermission('manage_users'), userController.getLo
 // Abandoned Cart Management
 router.get('/admin/abandoned-carts', protect, admin, userController.getAbandonedCarts);
 router.post('/admin/nudge/:id', protect, admin, userController.sendCartNudge);
+
+// Slook Coins Management (Admin)
+router.get('/admin/loyalty-transactions', protect, admin, userController.getAllLoyaltyTransactions);
+router.put('/:id/coins', protect, admin, userController.updateUserCoins);
 
 
 module.exports = router;

@@ -243,20 +243,34 @@ exports.subscribeNewsletter = async (req, res) => {
 // @desc    Get Active Flash Sale (Public)
 // @route   GET /api/marketing/flash-sale
 // @access  Public
+// @desc    Get current active flash sale
+// @route   GET /api/marketing/flash-sale
+// @access  Public
 exports.getActiveFlashSale = async (req, res) => {
+    const logger = require('../utils/logger');
     try {
         const now = new Date();
-        // Find sale that has started and not ended
         const sale = await FlashSale.findOne({
             isActive: true,
             startTime: { $lte: now },
             endTime: { $gte: now }
-        }).populate('products', 'name price image slug discountPrice isBestSeller');
+        }).lean();
 
-        res.json(sale || null);
+        if (!sale) {
+            return res.status(200).json(null);
+        }
+
+        if (Array.isArray(sale.products)) {
+            sale.products = sale.products.filter(p => p !== null);
+        }
+
+        res.status(200).json(sale);
     } catch (error) {
-        console.error(error);
-        res.status(500).json({ message: 'Failed to fetch flash sale' });
+        logger.error("FLASH SALE CRITICAL ERROR:", {
+            message: error.message,
+            stack: error.stack
+        });
+        res.status(500).json({ success: false, message: 'Internal server error' });
     }
 };
 

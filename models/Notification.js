@@ -7,6 +7,10 @@ const notificationSchema = new mongoose.Schema({
     type: { type: String, enum: ['system', 'order', 'promo'], default: 'system' },
     isRead: { type: Boolean, default: false },
     data: { type: Object }, // Optional payload (e.g. url, orderId)
-}, { timestamps: true });
+}, {
+    timestamps: true
+});
+
+notificationSchema.index({ user: 1, createdAt: -1 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

@@ -79,6 +79,8 @@ const orderSchema = new mongoose.Schema({
   returnRequestedAt: { type: Date },
   returnMetadata: { type: Object }, // Flexible field for images/comments later
   isCoinsAwarded: { type: Boolean, default: false }, // Prevent double-awarding
+}, { timestamps: true });
+
 // INDEXES FOR PERFORMANCE
 orderSchema.index({ user: 1 });
 orderSchema.index({ orderStatus: 1 });

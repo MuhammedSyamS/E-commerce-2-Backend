@@ -1,84 +1,95 @@
 const nodemailer = require('nodemailer');
-const fs = require('fs');
-const path = require('path');
+const logger = require('./logger');
 
 /**
  * Unified email sender with account routing:
  *  - type: 'press'  → press.slook@gmail.com  → "SLOOK Press"   (orders, shipping, newsletter, returns)
  *  - default        → verify.slook@gmail.com → "SLOOK Verification" (OTP, auth emails)
+ *
+ * PERFORMANCE: Transporters are created ONCE at startup (not per-request).
+ * Connection pooling is enabled to reuse SMTP connections.
+ */
+
+// --- Build transporters ONCE at startup (not per-request) ---
+let verificationTransporter = null;
+let pressTransporter = null;
+
+function createTransporter(user, pass) {
+    if (!user || !pass) return null;
+    return nodemailer.createTransport({
+        service: 'gmail',
+        host: 'smtp.gmail.com',
+        port: 587,
+        secure: false,
+        pool: true,           // Reuse connections — eliminates per-send handshake delay
+        maxConnections: 5,
+        maxMessages: 100,
+        auth: { user, pass },
+        tls: { rejectUnauthorized: false }
+    });
+}
+
+// Initialize at module load time
+const emailUser = process.env.EMAIL_USER;
+const emailPass = process.env.EMAIL_PASS;
+const pressEmail = process.env.PRESS_EMAIL;
+const pressPass = process.env.PRESS_EMAIL_PASS;
+
+// Check for placeholder passwords
+const pressReady = pressPass && !pressPass.startsWith('REPLACE_WITH');
+
+verificationTransporter = createTransporter(emailUser, emailPass);
+pressTransporter = pressReady
+    ? createTransporter(pressEmail || emailUser, pressPass)
+    : verificationTransporter;
+
+// Fallback: Use Ethereal for dev if no credentials
+let etherealTransporter = null;
+async function getEtherealTransporter() {
+    if (etherealTransporter) return etherealTransporter;
+    const testAccount = await nodemailer.createTestAccount();
+    etherealTransporter = nodemailer.createTransport({
+        host: 'smtp.ethereal.email',
+        port: 587,
+        secure: false,
+        pool: true,
+        auth: { user: testAccount.user, pass: testAccount.pass }
+    });
+    return etherealTransporter;
+}
+
+/**
+ * Send an email.
+ * @param {object} options - { email, subject, html, text, type? }
  */
 const sendEmail = async (options) => {
-    const logFile = path.join(__dirname, '../debug_otp.log');
-    const log = (msg) => {
-        const timestamp = new Date().toISOString();
-        fs.appendFileSync(logFile, `[${timestamp}] ${msg}\n`);
-        console.log(msg);
-    };
-
-    log(`--- SENDING EMAIL TO: ${options.email} [type: ${options.type || 'verification'}] ---`);
-    log(`Subject: ${options.subject}`);
-
-    // Pick credentials and display name based on type
     const isPress = options.type === 'press';
 
-    // Detect placeholder passwords — fall back to verified EMAIL_USER credentials
-    const pressPass = process.env.PRESS_EMAIL_PASS;
-    const pressReady = pressPass && !pressPass.startsWith('REPLACE_WITH');
+    let transporter = isPress ? pressTransporter : verificationTransporter;
+    let senderEmail = isPress ? (pressReady ? (pressEmail || emailUser) : emailUser) : emailUser;
+    let senderName = isPress ? 'SLOOK Press' : 'SLOOK Verification';
 
-    const senderEmail = isPress
-        ? (pressReady ? (process.env.PRESS_EMAIL || process.env.EMAIL_USER) : process.env.EMAIL_USER)
-        : process.env.EMAIL_USER;
+    // Dev fallback to Ethereal
+    if (!transporter) {
+        logger.warn('[MAIL] No credentials configured — using Ethereal fallback');
+        transporter = await getEtherealTransporter();
+        senderEmail = 'support@slook.com';
+    }
 
-    const senderPass = isPress
-        ? (pressReady ? pressPass : process.env.EMAIL_PASS)
-        : process.env.EMAIL_PASS;
-
-    const senderName = isPress ? 'SLOOK Press' : 'SLOOK Verification';
-
-    let transporter;
+    const mailOptions = {
+        from: `"${senderName}" <${senderEmail}>`,
+        to: options.email,
+        subject: options.subject,
+        html: options.html,
+        text: options.text
+    };
 
     try {
-        if (senderEmail && senderPass) {
-            log(`[MAIL] Attempting to send ${options.type || 'verification'} email to: ${options.email} using ${senderEmail}`);
-            transporter = nodemailer.createTransport({
-                service: 'gmail',
-                host: 'smtp.gmail.com',
-                port: 587,
-                secure: false,
-                auth: { user: senderEmail, pass: senderPass },
-                tls: { rejectUnauthorized: false }
-            });
-            log(`[MAIL] Transporter created for ${senderEmail}`);
-        } else {
-            // Fallback to Ethereal (Dev Mode)
-            const testAccount = await nodemailer.createTestAccount();
-            transporter = nodemailer.createTransport({
-                host: 'smtp.ethereal.email',
-                port: 587,
-                secure: false,
-                auth: { user: testAccount.user, pass: testAccount.pass }
-            });
-            log('Using Ethereal Fallback');
-        }
-
-        const mailOptions = {
-            from: `"${senderName}" <${senderEmail || 'support@slook.com'}>`,
-            to: options.email,
-            subject: options.subject,
-            html: options.html,
-            text: options.text
-        };
-
         const info = await transporter.sendMail(mailOptions);
-        log(`Message sent: ${info.messageId} via ${senderEmail}`);
-
-        if (!senderEmail && nodemailer.getTestMessageUrl(info)) {
-            log(`Preview URL: ${nodemailer.getTestMessageUrl(info)}`);
-        }
-
+        logger.info(`[MAIL] Sent to ${options.email} | ID: ${info.messageId}`);
         return info;
     } catch (error) {
-        log(`EMAIL ERROR: ${error.message}`);
+        logger.error(`[MAIL] Failed for ${options.email}: ${error.message}`);
         throw error;
     }
 };

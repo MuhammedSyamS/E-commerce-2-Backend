@@ -1,5 +1,6 @@
 const Contact = require('../models/Contact');
 const Ticket = require('../models/Ticket');
+const User = require('../models/User');
 
 // @desc    Submit Public Contact Form
 // @route   POST /api/support/contact
@@ -89,7 +90,7 @@ exports.deleteContact = async (req, res) => {
     }
 };
 
-const User = require('../models/User');
+
 
 // @desc    Create a new support ticket
 // @route   POST /api/support

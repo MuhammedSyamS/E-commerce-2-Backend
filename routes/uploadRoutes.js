@@ -1,7 +1,7 @@
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const { uploadToCloudinary } = require('../utils/cloudinary');
+const { uploadMedia } = require('../services/mediaService');
 const logger = require('../utils/logger');
 
 const router = express.Router();
@@ -34,10 +34,10 @@ router.post('/', upload.single('file'), async (req, res) => {
             return res.status(400).send({ message: 'No file selected' });
         }
 
-        // Upload to Cloudinary
-        const result = await uploadToCloudinary(req.file.buffer, 'products');
+        // Upload via Media Service (AWS S3 or Cloudinary)
+        const result = await uploadMedia(req.file.buffer, 'products', req.file.originalname);
 
-        logger.info(`[UPLOAD] File uploaded to Cloudinary: ${result.secure_url} | IP: ${req.ip}`);
+        logger.info(`[UPLOAD] File uploaded successfully to ${result.secure_url} | IP: ${req.ip}`);
 
         res.json({
             message: 'File uploaded successfully',

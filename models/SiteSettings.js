@@ -19,6 +19,7 @@ const siteSettingsSchema = new mongoose.Schema({
     orderAlerts: { type: Boolean, default: true },
     emailNotifications: { type: Boolean, default: true },
     marketingEmails: { type: Boolean, default: false },
+    isReferralEnabled: { type: Boolean, default: true },
 
     // Logistics
     minDeliveryDays: { type: Number, default: 3 },
@@ -52,12 +53,25 @@ const siteSettingsSchema = new mongoose.Schema({
         link: { type: String, default: '' }
     }],
 
-    // Marquee Section
-    marqueeText: { type: String, default: '' },
-    marqueeMessages: [{
-        text: { type: String, required: true },
-        link: { type: String, default: '' }
-    }]
+    // Slook Coins Settings
+    loyaltyPointsEnabled: { type: Boolean, default: true },
+    maxCoinsPerOrder: { type: Number, default: 100 },
+    maxCoinsPercentage: { type: Number, default: 30 }, // 30%
+    minCoinsToRedeem: { type: Number, default: 100 },
+    
+    // Earning Rates (Coins per ₹1000 spent)
+    earnRateOnline: { type: Number, default: 4 }, // 1 coin per ₹250 = 4 coins per ₹1000
+    earnRateCOD: { type: Number, default: 2 },    // 1 coin per ₹500 = 2 coins per ₹1000
+    
+    // Tier Multipliers
+    silverMultiplier: { type: Number, default: 1 },
+    goldMultiplier: { type: Number, default: 1.5 },
+    platinumMultiplier: { type: Number, default: 2 },
+
+    // Tier Thresholds (Total Spent)
+    silverThreshold: { type: Number, default: 10000 },
+    goldThreshold: { type: Number, default: 50000 },
+    platinumThreshold: { type: Number, default: 100000 },
 }, { timestamps: true });
 
 // Singleton pattern helper: always fetch the first document

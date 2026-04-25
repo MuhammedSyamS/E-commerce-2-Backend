@@ -1,3 +1,4 @@
+// SLOOK SERVER - AI ACTIVE
 require("dotenv").config();
 
 const express = require("express");
@@ -7,191 +8,261 @@ const cors = require("cors");
 const helmet = require("helmet");
 const compression = require("compression");
 const rateLimit = require("express-rate-limit");
-const mongoSanitize = require("express-mongo-sanitize");
-const xss = require("xss-clean");
 const Sentry = require("@sentry/node");
 const { nodeProfilingIntegration } = require("@sentry/profiling-node");
 const { Server } = require("socket.io");
 const path = require("path");
+const fs = require("fs");
 
 const logger = require("./utils/logger");
 const vault = require("./config/vault");
+const redis = require("./config/redis");
+
+let cookieParser;
+try {
+  cookieParser = require("cookie-parser");
+} catch (err) {
+  logger.warn("⚠️ cookie-parser not found. Cookie auth may not work correctly.");
+}
 
 // ============================
-// 🔐 ENV VALIDATION (Fail Fast)
+// ENV VALIDATION
 // ============================
-const requiredEnv = ["MONGO_URI", "JWT_SECRET", "GOOGLE_CLIENT_ID"];
+
+const requiredEnv = [
+  "MONGO_URI",
+  "JWT_SECRET",
+  "GOOGLE_CLIENT_ID",
+  "CLOUDINARY_API_KEY",
+  "CLOUDINARY_API_SECRET",
+];
+
 requiredEnv.forEach((key) => {
   const val = vault[key] || process.env[key];
+
   if (!val) {
     logger.error(`❌ Missing required environment variable: ${key}`);
     process.exit(1);
   }
-  // Log presence without value for security
-  logger.info(`Vault check: ${key} is ${val ? 'PRESENT' : 'MISSING'}`);
 });
 
-// Build path validation
+if (!process.env.REDIS_URL)
+  logger.warn("⚠️ REDIS_URL not set – using default localhost");
+
+if (!process.env.SENTRY_DSN)
+  logger.warn("⚠️ SENTRY_DSN not set – monitoring disabled");
+
+// ============================
+// FRONTEND BUILD CHECK
+// ============================
+
 const buildPath = path.resolve(__dirname, "../client/dist");
-const fs = require('fs');
+
 if (!fs.existsSync(path.join(buildPath, "index.html"))) {
-  logger.warn(`⚠️ FRONTEND BUILD MISSING: ${buildPath}/index.html not found!`);
+  logger.warn(`⚠️ FRONTEND BUILD MISSING: ${buildPath}/index.html not found`);
 } else {
   logger.info(`✅ Frontend build found at: ${buildPath}`);
 }
 
 // ============================
-// 🚀 CREATE APP & SERVER
+// CREATE APP
 // ============================
+
 const app = express();
-
-// ============================
-// 📊 MONITORING (Sentry)
-// ============================
-Sentry.init({
-  dsn: process.env.SENTRY_DSN || "https://examplePublicKey@o0.ingest.sentry.io/0",
-  integrations: [
-    nodeProfilingIntegration(),
-  ],
-  tracesSampleRate: 1.0,
-  profilesSampleRate: 1.0,
-});
-
 const server = http.createServer(app);
 
-// Enable "trust proxy" if behind a reverse proxy (Render, Heroku, etc.)
-app.set("trust proxy", 1);
+if (cookieParser) {
+  app.use(cookieParser());
+}
 
 // ============================
-// 🛡 SECURITY MIDDLEWARE
+// SENTRY
 // ============================
+
+Sentry.init({
+  dsn: process.env.SENTRY_DSN || "",
+  // Fully disabling profiling to eliminate any performance overhead
+  tracesSampleRate: 0.0, 
+});
+
+// ============================
+// SECURITY MIDDLEWARE
+// ============================
+
+app.set("trust proxy", 1);
+
 app.use(
   helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'", "https://checkout.razorpay.com"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://images.unsplash.com"],
+        connectSrc: ["'self'", "https://api.razorpay.com", "https://lumberjack-cx.razorpay.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        objectSrc: ["'none'"],
+        mediaSrc: ["'self'"],
+        frameSrc: ["'self'", "https://api.razorpay.com"],
+      },
+    },
     crossOriginResourcePolicy: { policy: "cross-origin" },
-    crossOriginOpenerPolicy: { policy: "unsafe-none" },
+    referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   })
 );
 
 app.use(compression());
-app.use(express.json({ limit: "2mb" })); // Reduced from 100mb for security
-app.use(mongoSanitize()); // Prevent NoSQL injection
-app.use(xss()); // Prevent XSS attacks
+app.use(express.json({ limit: "1mb" })); // Tightened limit
+app.use(express.urlencoded({ extended: true, limit: "1mb" }));
 
-// ============================
-// 🚦 RATE LIMITING
-// ============================
-// General API Limiter: 100 requests per minute
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, 
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Strict Auth Limiter: 5 attempts per minute
-const authLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, 
-  max: 5,
-  message: { message: "Too many login/register attempts. Please try again after a minute." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-// Strict Upload Limiter: 10 uploads per minute
-const uploadLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000, 
-  max: 10,
-  message: { message: "Too many upload requests. Please try again after a minute." },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-
-app.use("/api", apiLimiter);
-app.use("/api/users/login", authLimiter);
-app.use("/api/users/register", authLimiter);
-app.use("/api/upload", uploadLimiter);
-app.use("/api/looks/upload", uploadLimiter); // Updated path
-
-// ============================
-// 🌍 CORS
-// ============================
-const allowedOrigins = [
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-  "http://localhost:4173",
-  "http://127.0.0.1:4173",
-  "https://slook-store.vercel.app",
-  "https://slook.luxury",
-  "https://slook.onrender.com",
-  "https://slook-339u.onrender.com",
-  vault.CLIENT_URL,
-].filter(Boolean);
-
-app.use(
-  cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (like mobile apps or curl)
-      if (!origin) return callback(null, true);
-
-      // Dynamically add origins from vault.ALLOWED_ORIGINS
-      const dynamicOrigins = vault.ALLOWED_ORIGINS 
-        ? vault.ALLOWED_ORIGINS.split(',').map(o => o.trim().toLowerCase()) 
-        : [];
-      
-      const allAllowed = [...allowedOrigins.map(o => o.trim().toLowerCase()), ...dynamicOrigins];
-      const normalizedOrigin = origin.trim().toLowerCase();
-      const isAllowed = allAllowed.includes(normalizedOrigin);
-
-      if (isAllowed) {
-        return callback(null, true);
+// Security & Sanitization (Express 5 Compatible)
+app.use((req, res, next) => {
+  const sanitize = (obj) => {
+    if (obj instanceof Object) {
+      for (const key in obj) {
+        if (typeof obj[key] === 'string') {
+          // Basic XSS Protection: Escape special chars
+          obj[key] = obj[key]
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+        }
+        
+        // MongoDB Injection Protection
+        if (key.startsWith('$') || key.includes('.')) {
+          delete obj[key];
+        } else if (obj[key] instanceof Object) {
+          sanitize(obj[key]);
+        }
       }
+    }
+  };
+  
+  if (req.body) sanitize(req.body);
+  if (req.params) sanitize(req.params);
+  if (req.query) {
+    const query = { ...req.query };
+    sanitize(query);
+    req.query = query;
+  }
+  next();
+});
 
-      logger.warn(`🚫 CORS BLOCKED | Origin: ${origin} | Allowed total: ${allAllowed.length}`);
-      return callback(new Error("CORS blocked"));
-    },
-    credentials: true,
-  })
-);
-
-// ============================
-// 📂 STATIC FILES (UPLOADS)
-// ============================
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-// --- HEALTH CHECK ---
-app.get("/api/health", (req, res) => res.status(200).json({ status: "ok", timestamp: new Date() }));
-
-// ============================
-// ⏱️ PERFORMANCE MONITORING
-// ============================
+// Performance Monitor Middleware
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
     if (duration > 500) {
-      logger.warn(`🐌 SLOW REQUEST | ${req.method} ${req.originalUrl} | ${duration}ms`);
-    } else {
-       logger.info(`⚡ REQUEST | ${req.method} ${req.originalUrl} | ${duration}ms`);
+      logger.warn(`🐢 SLOW ENDPOINT: ${req.method} ${req.originalUrl} [${duration}ms]`);
     }
   });
   next();
 });
 
 // ============================
-// 📦 ROUTES
+// RATE LIMITING (REDIS BACKED)
 // ============================
+const { 
+  loginLimiter, registerLimiter, orderLimiter, 
+  paymentLimiter, globalApiLimiter 
+} = require("./middleware/rateLimiter");
+
+app.use("/api", globalApiLimiter);
+app.use("/api/users/login", loginLimiter);
+app.use("/api/users/register", registerLimiter);
+app.use("/api/orders", orderLimiter);
+app.use("/api/payments", paymentLimiter);
+
+// ============================
+// CORS
+// ============================
+
+const originsFromEnv = vault.ALLOWED_ORIGINS ? vault.ALLOWED_ORIGINS.split(',') : [];
+
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "http://localhost:3001",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:3001",
+  "http://192.168.86.4:3001",
+  "https://slook-store.vercel.app",
+  "https://slook.luxury",
+  vault.CLIENT_URL,
+  ...originsFromEnv,
+].filter(Boolean);
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      if (!origin || process.env.NODE_ENV !== "production") return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      logger.warn(`🚫 CORS BLOCKED: ${origin}`);
+      callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
+
+// ============================
+// STATIC FILES
+// ============================
+
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+
+// ============================
+// HEALTH CHECK
+// ============================
+
+app.get("/api/health", async (req, res) => {
+  const os = require('os');
+  let redisStatus = "Disconnected";
+  try {
+    const ping = await redis.ping();
+    if (ping === "PONG") redisStatus = "Connected";
+  } catch (err) {}
+
+  res.status(200).json({
+    status: "OK",
+    environment: process.env.NODE_ENV,
+    uptime: process.uptime(),
+    dbStatus: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected",
+    redisStatus,
+    system: {
+      memory: {
+        total: Math.round(os.totalmem() / 1024 / 1024) + 'MB',
+        free: Math.round(os.freemem() / 1024 / 1024) + 'MB'
+      },
+      load: os.loadavg()
+    }
+  });
+});
+
+// ============================
+// ROUTES
+// ============================
+
 app.use("/api/users", require("./routes/authRoutes"));
 app.use("/api/users", require("./routes/userRoutes"));
 app.use("/api/products", require("./routes/productRoutes"));
 app.use("/api/orders", require("./routes/orderRoutes"));
+app.use("/api/cart", require("./routes/cartRoutes"));
+app.use("/api/wishlist", require("./routes/wishlistRoutes"));
 app.use("/api/coupons", require("./routes/couponRoutes"));
+app.use("/api/invoices", require("./routes/invoiceRoutes"));
 app.use("/api/returns", require("./routes/returnRoutes"));
 app.use("/api/reports", require("./routes/reportRoutes"));
 app.use("/api/marketing", require("./routes/marketingRoutes"));
 app.use("/api/looks", require("./routes/lookRoutes"));
 app.use("/api/settings", require("./routes/settingsRoutes"));
-app.use("/api/cart", require("./routes/cartRoutes"));
-app.use("/api/wishlist", require("./routes/wishlistRoutes"));
 app.use("/api/notifications", require("./routes/notificationRoutes"));
 app.use("/api/payments", require("./routes/paymentRoutes"));
 app.use("/api/support", require("./routes/supportRoutes"));
@@ -199,187 +270,155 @@ app.use("/api/blog", require("./routes/blogRoutes"));
 app.use("/api/upload", require("./routes/uploadRoutes"));
 app.use("/api/alerts", require("./routes/alertRoutes"));
 app.use("/api/ai", require("./routes/aiRoutes"));
-app.use("/", require("./routes/seoRoutes"));
+app.use("/api/chat", require("./routes/chatRoutes"));
+// app.use("/", require("./routes/seoRoutes")); // Commented out to prevent conflict with serve frontend
+
+const { 
+  hppProtection, bruteForceLockout, activityLogger 
+} = require("./middleware/securityShield");
+const { getMetrics } = require("./metrics");
+
+app.use(hppProtection);
+app.use(activityLogger);
+app.use("/api/auth", bruteForceLockout); // Apply only to auth for now to prevent lockout issues elsewhere
 
 // ============================
-// ❤️ HEALTH CHECK
+// METRICS
 // ============================
-app.get("/api/health", (req, res) => {
-  res.status(200).json({
-    status: "OK",
-    uptime: process.uptime(),
-    timestamp: Date.now(),
-    dbStatus: mongoose.connection.readyState === 1 ? "Connected" : "Disconnected"
-  });
-});
+app.get("/metrics", getMetrics);
 
 // ============================
-// 🌍 SERVE FRONTEND (Catch-all for SPA)
+// SERVE FRONTEND
 // ============================
-// Serve static assets from the React build
+
 app.use(express.static(buildPath));
 
-// API 404 handler (Specialized for API)
 app.use("/api", (req, res) => {
   res.status(404).json({ message: `API route ${req.originalUrl} not found` });
 });
 
-// React SPA Catch-all (Non-API GET requests)
 app.use((req, res, next) => {
-  // Only handle GET requests that don't start with /api
-  if (req.method !== 'GET' || req.originalUrl.startsWith('/api')) {
+  if (req.method !== "GET" || req.originalUrl.startsWith("/api")) {
     return next();
   }
 
   const indexFile = path.join(buildPath, "index.html");
+
   res.sendFile(indexFile, (err) => {
-    if (err) {
-      // If index.html is missing, we shouldn't keep trying to serve it for every request
-      // We pass the error to the global handler
-      console.error(`❌ SPA Catch-all Failed: ${req.originalUrl} | Path: ${indexFile} | Error: ${err.message}`);
-      next(); 
-    }
+    if (err) next();
   });
 });
 
 // ============================
-// 🌍 SOCKET.IO
+// SOCKET.IO
 // ============================
+
 const io = new Server(server, {
-  cors: { 
+  cors: {
     origin: allowedOrigins,
-    credentials: true
+    credentials: true,
   },
 });
 
 io.on("connection", (socket) => {
   logger.info(`🔌 Socket Connected: ${socket.id}`);
 
-  socket.on('join-user-room', (userId) => {
+  socket.on("join-user-room", (userId) => {
     socket.join(userId);
-    logger.info(`Socket ${socket.id} joined room: ${userId}`);
-  });
-
-  // --- LIVE CHAT EVENTS ---
-  socket.on('send-message', async (data) => {
-    try {
-      const User = require('./models/User');
-      const ChatMessage = require('./models/ChatMessage');
-
-      // Check if chat is enabled (only for customers) - Throttled check could be here but for now simple findById
-      if (!data.isAdmin) {
-        const user = await User.findById(data.userId).select('chatEnabledUntil');
-        if (!user || !user.chatEnabledUntil || new Date() > user.chatEnabledUntil) {
-          return socket.emit('chat-error', { message: 'Chat session expired or not active' });
-        }
-      }
-
-      const msgData = {
-        user: data.userId,
-        sender: data.senderId,
-        message: data.message,
-        isAdmin: data.isAdmin || false,
-        tempId: data.tempId
-      };
-
-      // Create and emit
-      ChatMessage.create(msgData).then(async (msg) => {
-        io.to(data.userId).emit('receive-message', msg);
-        io.emit('admin-receive-message', msg); 
-
-        // PERSISTENT NOTIFICATION FOR ADMINS (if sent by user)
-        if (!data.isAdmin) {
-          try {
-            const Notification = require('./models/Notification');
-            const User = require('./models/User');
-            const adminUsers = await User.find({ role: 'admin' });
-            
-            // Just for the first message in a session or similar? 
-            // The user asked for it "whenever", but we'll focus on notifying them of the "New Message".
-            for (const admin of adminUsers) {
-               await Notification.create({
-                 user: admin._id,
-                 title: "New Chat Message",
-                 message: `Message from customer: ${data.message.substring(0, 30)}...`,
-                 type: 'system',
-                 data: { url: '/admin/support', userId: data.userId }
-               });
-            }
-          } catch (err) { logger.error("Chat Admin Notif Fail") }
-        }
-      }).catch(err => logger.error('Chat DB Save Error:', err.message));
-    } catch (err) {
-      logger.error('Chat Error:', err.message);
-    }
-  });
-
-  socket.on('typing', (data) => {
-    io.to(data.userId).emit('user-typing', data);
   });
 });
 
 app.set("socketio", io);
 
-// Add Chat Routes
-app.use("/api/chat", require("./routes/chatRoutes"));
+// ============================
+// ERROR HANDLING
+// ============================
 
-// ============================
-// 🛡️ GLOBAL ERROR HANDLING
-// ============================
-const { notFound, errorHandler } = require('./middleware/errorMiddleware');
+const { notFound, errorHandler } = require("./middleware/errorMiddleware");
+
 app.use(notFound);
 app.use(errorHandler);
 
 // ============================
-// 🗄 DATABASE CONNECTION
+// DATABASE CONNECTION
 // ============================
+
 async function connectDatabase() {
   try {
-    await mongoose.connect(vault.MONGO_URI);
+    await mongoose.connect(vault.MONGO_URI, {
+      serverSelectionTimeoutMS: 5000,
+      socketTimeoutMS: 45000,
+      maxPoolSize: 100, // Enterprise scale
+      minPoolSize: 10,  // Warm connections ready
+    });
     logger.info("✅ MongoDB Connected");
   } catch (err) {
     logger.error("❌ MongoDB Connection Failed:", err.message);
-    setTimeout(connectDatabase, 10000);
+    process.exit(1);
   }
 }
 
 // ============================
-// 🚀 START SERVER
+// START SERVER
 // ============================
+
 const PORT = vault.PORT || 5005;
 
-server.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Server running on port ${PORT}`);
-  connectDatabase();
+async function startServer() {
+  await connectDatabase();
 
-  try {
-    const startCronJobs = require("./utils/cronJobs");
-    startCronJobs();
-  } catch (err) {
-    logger.warn("⚠️ Cron jobs failed to start:", err.message);
+  server.listen(PORT, "0.0.0.0", () => {
+    logger.info(`🚀 Server running on port ${PORT}`);
+
+    try {
+      const startCronJobs = require("./utils/cronJobs");
+      startCronJobs();
+    } catch (err) {
+      logger.warn("⚠️ Cron jobs failed:", err.message);
+    }
+  });
+}
+
+startServer();
+
+// ============================
+// PORT ERROR HANDLING
+// ============================
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    logger.error(`❌ Port ${PORT} already in use`);
+    process.exit(1);
   }
+
+  logger.error("🔥 Server error:", err);
 });
 
 // ============================
-// 🛑 GRACEFUL SHUTDOWN
+// GRACEFUL SHUTDOWN
 // ============================
-const shutdown = async (signal) => {
+
+async function shutdown(signal) {
   logger.info(`${signal} received. Shutting down gracefully...`);
+
   server.close(async () => {
-    logger.info("HTTP server closed.");
-    await mongoose.connection.close();
-    logger.info("MongoDB connection closed.");
-    process.exit(0);
+    try {
+      await mongoose.connection.close();
+      logger.info("📦 MongoDB connection closed.");
+      
+      await redis.quit();
+      logger.info("⚡ Redis connection closed.");
+      
+      process.exit(0);
+    } catch (err) {
+      logger.error("❌ Shutdown Error:", err);
+      process.exit(1);
+    }
   });
+}
 
-  setTimeout(() => {
-    logger.error("Could not close connections in time, forcefully shutting down");
-    process.exit(1);
-  }, 10000);
-};
-
-process.on("SIGTERM", () => shutdown("SIGTERM"));
 process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));
 
 process.on("uncaughtException", (err) => {
   logger.error("🔥 UNCAUGHT EXCEPTION:", err);

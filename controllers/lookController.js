@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { uploadToCloudinary, deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const { uploadMedia, deleteMedia, extractMediaId, getResourceType } = require('../services/mediaService');
 const Look = require('../models/Look');
 
 // @desc    Create a new look
@@ -14,8 +14,8 @@ const createLook = async (req, res) => {
             return res.status(400).json({ message: 'Please upload an image' });
         }
 
-        // Upload to Cloudinary
-        const cloudinaryResult = await uploadToCloudinary(req.file.buffer, 'looks');
+        // Upload via Media Service
+        const cloudinaryResult = await uploadMedia(req.file.buffer, 'looks', req.file.originalname);
 
         const parsedProducts = JSON.parse(products);
 
@@ -88,8 +88,9 @@ const toggleLike = async (req, res) => {
             return res.status(404).json({ message: 'Look not found' });
         }
 
-        const isLiked = look.likes.includes(req.user._id);
-
+        if (!look.likes) look.likes = [];
+        const isLiked = look.likes.some(id => id.toString() === req.user._id.toString());
+        
         if (isLiked) {
             look.likes = look.likes.filter(id => id.toString() !== req.user._id.toString());
         } else {
@@ -118,10 +119,10 @@ const deleteLook = async (req, res) => {
             return res.status(401).json({ message: 'Not authorized' });
         }
 
-        // --- CLOUDINARY CLEANUP ---
-        const publicId = extractPublicId(look.image);
-        if (publicId) {
-            await deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Look):", err));
+        // --- MEDIA CLEANUP ---
+        const mediaId = extractMediaId(look.image);
+        if (mediaId) {
+            await deleteMedia(mediaId, getResourceType(look.image)).catch(err => console.error("Media Service Delete Error (Look):", err));
         }
         // -------------------------
 

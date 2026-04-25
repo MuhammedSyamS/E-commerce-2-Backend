@@ -7,36 +7,45 @@ const User = require('../models/User');
 const protect = async (req, res, next) => {
   let token;
 
-  // 1. Check if Authorization header exists and starts with Bearer
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
-      // 2. Extract token
       token = req.headers.authorization.split(' ')[1];
-
-      // 3. Verify token with Secret Key
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // 4. Find user (checking both 'id' and '_id' for flexibility)
-      const userId = decoded.id || decoded._id;
-      req.user = await User.findById(decoded.id).select('-password');
-      // console.log("Auth Middleware User:", req.user?.email, req.user?.role, req.user?.isAdmin); 
+      // 1. Fetch user with status flags
+      const user = await User.findById(decoded.id).select('-password');
 
-      if (!req.user) {
-        return res.status(401).json({ message: 'User not found, access denied' });
+      if (!user) {
+        return res.status(401).json({ success: false, message: 'USER_NOT_FOUND', code: 'AUTH_001' });
       }
 
-      // 5. Proceed to the next middleware/controller
+      // 2. CHECK STATUS (ZERO TRUST)
+      if (user.isBlocked) {
+        return res.status(403).json({ success: false, message: 'ACCOUNT_BLOCKED', code: 'AUTH_002' });
+      }
+
+      if (user.isDeleted) {
+        return res.status(403).json({ success: false, message: 'ACCOUNT_DELETED', code: 'AUTH_003' });
+      }
+
+      // 3. TOKEN VERSION VALIDATION (Instant Logout Support)
+      if (typeof decoded.tokenVersion !== 'undefined' && decoded.tokenVersion !== user.tokenVersion) {
+        return res.status(401).json({ success: false, message: 'SESSION_REVOKED', code: 'AUTH_004' });
+      }
+
+      req.user = user;
       return next();
 
     } catch (error) {
-      console.error('Auth Error:', error.message);
-      return res.status(401).json({ message: 'Session expired or invalid token' });
+      if (error.name === 'TokenExpiredError') {
+        return res.status(401).json({ success: false, message: 'TOKEN_EXPIRED', code: 'AUTH_005' });
+      }
+      return res.status(401).json({ success: false, message: 'INVALID_SESSION', code: 'AUTH_006' });
     }
   }
 
-  // 6. Handle cases where no token was provided at all
   if (!token) {
-    return res.status(401).json({ message: 'No token provided, please login' });
+    return res.status(401).json({ success: false, message: 'NOT_AUTHENTICATED', code: 'AUTH_007' });
   }
 };
 

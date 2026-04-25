@@ -9,13 +9,23 @@ const cache = (duration = 300) => async (req, res, next) => {
   const key = `__express__${req.originalUrl || req.url}`;
   
   try {
-    const cachedResponse = await redis.get(key);
+    let cachedResponse = null;
+    if (redis && (redis.status === 'ready' || redis.status === 'connecting')) {
+      try {
+        cachedResponse = await redis.get(key);
+      } catch (err) {
+        logger.warn('Cache Get Failed (Redis Down):', err.message);
+      }
+    }
+
     if (cachedResponse) {
       return res.status(200).json(JSON.parse(cachedResponse));
     } else {
       res.sendResponse = res.json;
       res.json = (body) => {
-        redis.set(key, JSON.stringify(body), 'EX', duration);
+        if (redis && redis.status === 'ready') {
+          redis.set(key, JSON.stringify(body), 'EX', duration).catch(e => logger.warn('Cache Set Failed:', e.message));
+        }
         res.sendResponse(body);
       };
       next();

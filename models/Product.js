@@ -71,12 +71,11 @@ productSchema.index({ rating: -1 });
 productSchema.index({ viewCount: -1 });
 productSchema.index({ createdAt: -1 });
 productSchema.index({ price: 1 });
-productSchema.index({ name: 'text', tags: 'text' }); // For Keyword Search
+productSchema.index({ name: 'text', tags: 'text', description: 'text', category: 'text' }); // For Keyword Search
+productSchema.index({ name: 1 }); // Standard index for regex/exact match
+productSchema.index({ tags: 1 }); // Standard index for tag filtering
 productSchema.index({ 'variants.size': 1, 'variants.color': 1 });
 productSchema.index({ badge: 1 });
-productSchema.index({ category: 1 });
-productSchema.index({ price: 1 });
-productSchema.index({ createdAt: -1 });
 
 // ENFORCE STOCK CONSISTENCY
 // ENFORCE STOCK CONSISTENCY

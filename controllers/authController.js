@@ -1,3 +1,7 @@
+const User = require('../models/User');
+const Otp = require('../models/Otp');
+const sendEmail = require('../utils/sendEmail');
+const generateToken = require('../utils/generateToken');
 const { getWelcomeTemplate } = require('../utils/emailTemplates');
 const logger = require('../utils/logger');
 const authService = require('../services/authService');
@@ -5,12 +9,9 @@ const authService = require('../services/authService');
 // --- 1. SEND OTP ---
 exports.sendOtp = async (req, res) => {
   try {
-    console.log("--- OTP REQUEST RECEIVED ---");
     const { email } = req.body;
-    console.log(`Email: ${email}`);
 
     if (!email) {
-      console.log("Error: Email missing");
       return res.status(400).json({ message: "EMAIL IS REQUIRED" });
     }
 
@@ -19,96 +20,81 @@ exports.sendOtp = async (req, res) => {
     // Check if user already exists
     const userExists = await User.findOne({ email: emailLower });
     if (userExists) {
-      console.log("Error: User already registered");
       return res.status(400).json({ message: "USER ALREADY REGISTERED WITH THIS EMAIL" });
     }
 
     // Generate 6-digit OTP
     const code = Math.floor(100000 + Math.random() * 900000).toString();
-    console.log(`[AUTH] Email for OTP: ${emailLower}`);
-    console.log(`[AUTH] Generated Code: ${code}`);
 
     // Save or Update OTP in DB
-    try {
-      await Otp.findOneAndUpdate(
-        { email: emailLower },
-        { code, createdAt: Date.now() },
-        { upsert: true, new: true }
-      );
-      console.log(`[AUTH] [SUCCESS] OTP saved to DB for ${emailLower}`);
-    } catch (dbError) {
-      console.error(`[AUTH] [DB ERROR] ${dbError.message}`);
-      throw dbError;
-    }
+    await Otp.findOneAndUpdate(
+      { email: emailLower },
+      { code, createdAt: Date.now() },
+      { upsert: true, returnDocument: 'after' }
+    );
 
-    // Send Mail using Central Utility
-    try {
-      await sendEmail({
-        email: emailLower,
-        subject: "Your Verification Code to SLOOK",
-        html: `
-        <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
-            <div style="text-align: center; padding: 40px 0; border-bottom: 1px solid #f5f5f5; background: #fff;">
-                <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -1px; margin: 0; text-transform: uppercase;">SLOOK</h1>
-                <p style="font-size: 11px; font-weight: 700; letter-spacing: 3px; color: #999; margin-top: 8px; text-transform: uppercase;">Modern Essentials</p>
-            </div>
-            
-            <div style="padding: 50px 30px; text-align: center; background: #fff;">
-                <h2 style="font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 12px; color: #000;">Verify Your Email</h2>
-                <p style="color: #666; margin-bottom: 35px; font-size: 15px; max-width: 400px; margin-left: auto; margin-right: auto;">Use the secure code below to complete your sign-up process. Do not share this with anyone.</p>
-                
-                <div style="background: #000; color: #fff; display: inline-block; padding: 20px 48px; border-radius: 12px; margin-bottom: 35px; box-shadow: 0 10px 25px -10px rgba(0,0,0,0.3);">
-                    <span style="font-size: 36px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace; display: block; line-height: 1;">${code}</span>
-                </div>
-                
-                <p style="font-size: 13px; color: #888; font-weight: 500;">This code expires in 5 minutes.</p>
-            </div>
+    // RESPOND IMMEDIATELY — email is sent in background
+    res.status(200).json({ message: "OTP SENT SUCCESSFULLY" });
 
-            <div style="background: #fafafa; border-top: 1px solid #eee; padding: 30px; text-align: center;">
-                <p style="font-size: 11px; color: #aaa; margin: 0;">&copy; ${new Date().getFullYear()} SLOOK. All rights reserved.</p>
-                <p style="font-size: 11px; color: #ccc; margin-top: 8px;">If you didn't request this email, you can safely ignore it.</p>
-            </div>
-        </div>`
-      });
-      console.log(`[AUTH] [SUCCESS] Email sent to ${emailLower}`);
-      res.status(200).json({ message: "OTP SENT SUCCESSFULLY" });
-    } catch (emailError) {
-      console.error(`[AUTH] [MAIL ERROR] ${emailError.message}`);
-      return res.status(500).json({ 
-        message: "COULD NOT SEND EMAIL. PLEASE CHECK YOUR EMAIL ADDRESS OR TRY LATER.",
-        error: emailError.message 
-      });
-    }
+    // Send email asynchronously (fire-and-forget — does NOT block response)
+    sendEmail({
+      email: emailLower,
+      subject: "Your Verification Code to SLOOK",
+      html: `
+      <div style="font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; color: #1a1a1a; line-height: 1.6; border: 1px solid #eee; border-radius: 8px; overflow: hidden;">
+          <div style="text-align: center; padding: 40px 0; border-bottom: 1px solid #f5f5f5; background: #fff;">
+              <h1 style="font-size: 32px; font-weight: 900; letter-spacing: -1px; margin: 0; text-transform: uppercase;">SLOOK</h1>
+              <p style="font-size: 11px; font-weight: 700; letter-spacing: 3px; color: #999; margin-top: 8px; text-transform: uppercase;">Modern Essentials</p>
+          </div>
+          
+          <div style="padding: 50px 30px; text-align: center; background: #fff;">
+              <h2 style="font-size: 20px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 12px; color: #000;">Verify Your Email</h2>
+              <p style="color: #666; margin-bottom: 35px; font-size: 15px; max-width: 400px; margin-left: auto; margin-right: auto;">Use the secure code below to complete your sign-up process. Do not share this with anyone.</p>
+              
+              <div style="background: #000; color: #fff; display: inline-block; padding: 20px 48px; border-radius: 12px; margin-bottom: 35px; box-shadow: 0 10px 25px -10px rgba(0,0,0,0.3);">
+                  <span style="font-size: 36px; font-weight: 700; letter-spacing: 12px; font-family: 'Courier New', monospace; display: block; line-height: 1;">${code}</span>
+              </div>
+              
+              <p style="font-size: 13px; color: #888; font-weight: 500;">This code expires in 5 minutes.</p>
+          </div>
+
+          <div style="background: #fafafa; border-top: 1px solid #eee; padding: 30px; text-align: center;">
+              <p style="font-size: 11px; color: #aaa; margin: 0;">&copy; ${new Date().getFullYear()} SLOOK. All rights reserved.</p>
+              <p style="font-size: 11px; color: #ccc; margin-top: 8px;">If you didn't request this email, you can safely ignore it.</p>
+          </div>
+      </div>`
+    }).catch(err => logger.error(`[AUTH] OTP email failed for ${emailLower}: ${err.message}`));
+
   } catch (error) {
-    console.error("OTP Error Stack:", error);
     if (res.headersSent) return;
     res.status(500).json({ message: "SERVER ERROR: COULD NOT SEND OTP", error: error.message });
   }
 };
 
+const COOKIE_OPTIONS = {
+  httpOnly: true,
+  secure: process.env.NODE_ENV === 'production',
+  sameSite: 'strict',
+  maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+};
+
 // --- 2. REGISTER USER ---
 exports.registerUser = async (req, res) => {
   try {
-    const { firstName, lastName, email: rawEmail, password, code, phone } = req.body;
+    const { email: rawEmail, code } = req.body;
     const email = rawEmail?.toLowerCase().trim();
 
-    // The code check and user existence check are moved to the service
-    // But some project-specific logic (OTP record check) might stay for now or also move.
-    // For a "Clean" refactor, let's move everything related to user creation.
-    
-    // Check OTP in controller for now as it's a "request" validation step
-    const Otp = require('../models/Otp');
     const otpRecord = await Otp.findOne({ email, code: code.trim() });
     if (!otpRecord) {
       return res.status(400).json({ success: false, message: "INVALID OR EXPIRED VERIFICATION CODE" });
     }
 
-    const user = await authService.register(req.body);
+    const { user, accessToken, refreshToken } = await authService.register(req.body);
 
-    // Clean up OTP
     await Otp.deleteOne({ _id: otpRecord._id });
 
-    res.status(201).json({ success: true, ...user });
+    res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
+    res.status(201).json({ success: true, user, accessToken });
   } catch (error) {
     res.status(400).json({ success: false, message: error.message || "REGISTRATION FAILED" });
   }
@@ -118,11 +104,47 @@ exports.registerUser = async (req, res) => {
 exports.loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
-    const user = await authService.login(email, password);
-    res.json({ success: true, ...user });
+    const { user, accessToken, refreshToken } = await authService.login(email, password);
+
+    res.cookie('refreshToken', refreshToken, COOKIE_OPTIONS);
+    res.json({ success: true, user, accessToken });
   } catch (error) {
     res.status(401).json({ success: false, message: error.message || "LOGIN FAILED" });
   }
+};
+
+// --- 3.1 REFRESH TOKEN (Rotation) ---
+exports.refreshToken = async (req, res) => {
+  try {
+    const refreshToken = req.cookies.refreshToken;
+    if (!refreshToken) return res.status(401).json({ message: 'No refresh token' });
+
+    const jwt = require('jsonwebtoken');
+    const decoded = jwt.verify(refreshToken, process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET);
+    
+    const user = await User.findById(decoded.id);
+    if (!user || user.isBlocked || user.tokenVersion !== decoded.tokenVersion) {
+      res.clearCookie('refreshToken', COOKIE_OPTIONS);
+      return res.status(401).json({ message: 'Session invalid' });
+    }
+
+    // ROTATE: Issue new access AND refresh tokens
+    const { generateToken, generateRefreshToken } = require('../utils/generateToken');
+    const newAccessToken = generateToken(user._id, user.tokenVersion);
+    const newRefreshToken = generateRefreshToken(user._id, user.tokenVersion);
+
+    res.cookie('refreshToken', newRefreshToken, COOKIE_OPTIONS);
+    res.json({ accessToken: newAccessToken });
+  } catch (err) {
+    res.clearCookie('refreshToken', COOKIE_OPTIONS);
+    res.status(401).json({ message: 'Refresh failed' });
+  }
+};
+
+// --- 3.2 LOGOUT ---
+exports.logoutUser = async (req, res) => {
+  res.clearCookie('refreshToken', COOKIE_OPTIONS);
+  res.status(200).json({ success: true, message: 'Logged out successfully' });
 };
 
 // --- 3.5 GET USER PROFILE (SYNC) ---
@@ -187,11 +209,14 @@ exports.forgotPasswordOtp = async (req, res) => {
     await Otp.findOneAndUpdate(
       { email: emailLower },
       { code, createdAt: Date.now() },
-      { upsert: true, new: true }
+      { upsert: true, returnDocument: 'after' }
     );
 
-    // Send Mail using Central Utility
-    await sendEmail({
+    // RESPOND IMMEDIATELY — email is sent in background
+    res.status(200).json({ message: "RESET CODE SENT TO EMAIL" });
+
+    // Send email asynchronously (fire-and-forget — does NOT block response)
+    sendEmail({
       email: emailLower,
       subject: "Reset Your Password",
       html: `
@@ -216,11 +241,11 @@ exports.forgotPasswordOtp = async (req, res) => {
                 <p style="font-size: 11px; color: #aaa; margin: 0;">&copy; ${new Date().getFullYear()} SLOOK. All rights reserved.</p>
             </div>
         </div>`
-    });
+    }).catch(err => logger.error(`[AUTH] Forgot-password email failed for ${emailLower}: ${err.message}`));
 
-    res.status(200).json({ message: "RESET CODE SENT TO EMAIL" });
   } catch (error) {
     console.error("Forgot Password Error:", error);
+    if (res.headersSent) return;
     res.status(500).json({ message: "SERVER ERROR: COULD NOT SEND RESET CODE", error: error.message });
   }
 };

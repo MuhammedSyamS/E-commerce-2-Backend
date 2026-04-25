@@ -18,8 +18,11 @@ const {
 const { generateInvoice, generateManifest, generateAdminReport } = require('../controllers/invoiceController');
 const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
 
+const validate = require('../middleware/validateMiddleware');
+const { trackOrderSchema } = require('../validations/orderValidation');
+
 // Public Route
-router.post('/track', trackOrder);
+router.post('/track', validate(trackOrderSchema), trackOrder);
 router.get('/lookup', lookupOrder);
 
 // Matches: POST /api/orders

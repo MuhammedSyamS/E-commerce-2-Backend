@@ -1,42 +1,87 @@
-const { deleteFromCloudinary, extractPublicId } = require('../utils/cloudinary');
+const Product = require('../models/Product');
+const { uploadMedia, deleteMedia, extractMediaId, getResourceType } = require('../services/mediaService');
 const productService = require('../services/productService');
 const Sentry = require('@sentry/node');
+const logger = require('../utils/logger');
 
 exports.searchProducts = async (req, res) => {
   try {
-    const { keyword } = req.query;
+    const { keyword: rawKeyword } = req.query;
+    const keyword = String(rawKeyword || '').trim();
     if (!keyword) return res.json({ products: [], categories: [] });
 
-    // 1. Search Products
-    const products = await Product.find({
-      $or: [
-        { name: { $regex: keyword, $options: 'i' } },
-        { description: { $regex: keyword, $options: 'i' } },
-        { tags: { $regex: keyword, $options: 'i' } }
-      ]
-    })
-      .select('name slug image price category tags isNewArrival isBestSeller rating numReviews')
-      .limit(30)
-      .lean();
+    const searchRegex = new RegExp(keyword, 'i');
+
+    // 1. Search Products with split logic to avoid MongoDB planner errors
+    // Query A: Text relevance
+    // Query B: Partial regex matches
+    const [textResults, regexResults] = await Promise.all([
+      Product.find({ $text: { $search: keyword } })
+        .select('name slug image price category tags subcategory isNewArrival isBestSeller rating numReviews')
+        .limit(20)
+        .lean()
+        .catch(() => []), // Fallback if text search fails/not indexed yet
+      Product.find({
+        $or: [
+          { name: { $regex: searchRegex } },
+          { tags: { $regex: searchRegex } },
+          { category: { $regex: searchRegex } },
+          { subcategory: { $regex: searchRegex } }
+        ]
+      })
+        .select('name slug image price category tags subcategory isNewArrival isBestSeller rating numReviews')
+        .limit(20)
+        .lean()
+    ]);
+
+    // Merge and deduplicate by ID
+    const resultsMap = new Map();
+    [...textResults, ...regexResults].forEach(p => {
+      resultsMap.set(p._id.toString(), p);
+    });
+    const products = Array.from(resultsMap.values());
 
     const scoredProducts = products.map(p => {
       let score = 0;
-      if (p.name.toLowerCase().includes(keyword.toLowerCase())) score += 10;
-      if (p.description?.toLowerCase().includes(keyword.toLowerCase())) score += 5;
-      if (p.tags && p.tags.some(t => t.toLowerCase().includes(keyword.toLowerCase()))) score += 3;
+      const lowerKeyword = keyword.toLowerCase();
+      const lowerName = p.name.toLowerCase();
+      
+      // Exact name match (Absolute priority)
+      if (lowerName === lowerKeyword) score += 1000;
+      // Exact name match without case sensitivity (High priority)
+      else if (lowerName.toLowerCase() === lowerKeyword.toLowerCase()) score += 500;
+      // Name starts with keyword
+      else if (lowerName.startsWith(lowerKeyword)) score += 100;
+      // Name contains keyword
+      else if (lowerName.includes(lowerKeyword)) score += 50;
+
+      // Category match
+      if (p.category?.toLowerCase().includes(lowerKeyword)) score += 15;
+      if (p.subcategory?.toLowerCase().includes(lowerKeyword)) score += 10;
+
+      // Tag match
+      if (p.tags && p.tags.some(t => t.toLowerCase().includes(lowerKeyword))) score += 5;
+      
       return { ...p, searchScore: score };
-    }).sort((a, b) => b.searchScore - a.searchScore).slice(0, 5);
+    })
+    .sort((a, b) => b.searchScore - a.searchScore)
+    .slice(0, 8); // Return up to 8 for better UI experience
 
     // 2. Extract Matching Categories
     const categories = await Product.distinct('category', {
-      category: { $regex: keyword, $options: 'i' }
+      $or: [
+        { category: { $regex: searchRegex } },
+        { subcategory: { $regex: searchRegex } },
+        { tags: { $regex: searchRegex } }
+      ]
     });
 
     res.json({
       products: scoredProducts,
-      categories: categories.slice(0, 3)
+      categories: categories.slice(0, 4)
     });
   } catch (error) {
+    console.error("Search Error:", error);
     res.status(500).json({ message: error.message });
   }
 };
@@ -53,91 +98,72 @@ exports.getProducts = async (req, res) => {
 
 exports.getHomeProducts = async (req, res) => {
   try {
-    // Parallel fetch for the two core built-in sections
-    const [newArrivals, bestSellers] = await Promise.all([
+    // Parallel fetch for ALL core sections — massive speed boost
+    const [newArrivals, bestSellers, badgedProducts, trending] = await Promise.all([
       Product.find({ isNewArrival: true })
         .sort({ createdAt: -1 })
-        .limit(10)
-        .select('name slug image price category rating numReviews tags isNewArrival isBestSeller variants countInStock')
+        .limit(20)
+        .select('name slug image price category rating numReviews countInStock badge tags variants isNewArrival isBestSeller isFlashSale')
         .lean(),
       Product.find({ isBestSeller: true })
         .sort({ createdAt: -1 })
-        .limit(10)
-        .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
+        .limit(20)
+        .select('name slug image price category rating numReviews countInStock badge tags variants isNewArrival isBestSeller isFlashSale')
+        .lean(),
+      // Optimized: Focus on explicit badges for performance, avoid heavy $or with large arrays
+      Product.find({ badge: { $exists: true, $ne: "" } })
+        .sort({ createdAt: -1 })
+        .limit(40)
+        .select('name slug image price category rating numReviews countInStock badge tags variants isNewArrival isBestSeller isFlashSale')
+        .lean(),
+      Product.find({})
+        .sort({ viewCount: -1 })
+        .limit(20)
+        .select('name slug image price category rating numReviews countInStock badge tags variants isNewArrival isBestSeller isFlashSale')
         .lean()
     ]);
-    
-    // Fetch most recent custom-badged products (using badge field OR tags array)
-    // Optimized: Use a more index-friendly query and limit fields further
-    const badgedProducts = await Product.find({ 
-      $or: [
-        { badge: { $gt: '' } },
-        { tags: { $exists: true, $not: { $size: 0 } } }
-      ]
-    })
-    .sort({ createdAt: -1 })
-    .limit(80) // Reduced limit for faster processing
-    .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller countInStock')
-    .lean();
 
     const sectionsMap = new Map();
     
     // Group products dynamically
     if (badgedProducts && badgedProducts.length > 0) {
       badgedProducts.forEach(p => {
-        // 1. Group by dedicated 'badge' field (Primary)
         const badge = p.badge?.trim();
         if (badge) {
-          // Skip if the badge is just reinforcing the core sections
-          if (badge.toLowerCase() === 'new arrival' || badge.toLowerCase() === 'best seller') {
-            // Do nothing, already handled by core sections
-          } else {
+          const lowerBadge = badge.toLowerCase();
+          if (lowerBadge !== 'new arrival' && lowerBadge !== 'best seller') {
             if (!sectionsMap.has(badge)) sectionsMap.set(badge, []);
-            if (sectionsMap.get(badge).length < 10 && !sectionsMap.get(badge).find(item => item._id.toString() === p._id.toString())) {
+            if (sectionsMap.get(badge).length < 10) {
               sectionsMap.get(badge).push(p);
             }
           }
         }
         
-        // 2. Group by custom tags (Secondary fallback)
-        if (Array.isArray(p.tags) && p.tags.length > 0) {
+        // Secondary: Group by tags if badge is missing or to fill sections
+        if (Array.isArray(p.tags)) {
           p.tags.forEach(t => {
-             const tag = t?.trim();
-             if (!tag) return;
-
-             // Skip if the tag is just reinforcing the core sections
-             if (tag.toLowerCase() === 'new arrival' || tag.toLowerCase() === 'best seller') return;
-             
-             if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
-             if (sectionsMap.get(tag).length < 10 && !sectionsMap.get(tag).find(item => item._id.toString() === p._id.toString())) {
-               sectionsMap.get(tag).push(p);
-             }
+            const tag = t?.trim();
+            if (!tag) return;
+            const lowerTag = tag.toLowerCase();
+            if (lowerTag === 'new arrival' || lowerTag === 'best seller') return;
+            
+            if (!sectionsMap.has(tag)) sectionsMap.set(tag, []);
+            const existing = sectionsMap.get(tag);
+            if (existing.length < 8 && !existing.find(item => item._id.toString() === p._id.toString())) {
+              existing.push(p);
+            }
           });
         }
       });
     }
 
     const dynamicSections = Array.from(sectionsMap.entries())
-      .map(([title, items]) => {
-        // Deduplicate: remove items that are already in newArrivals or bestSellers
-        const filteredItems = items.filter(item => 
-          !newArrivals.some(na => na._id.toString() === item._id.toString()) &&
-          !bestSellers.some(bs => bs._id.toString() === item._id.toString())
-        );
-        return {
-          id: title.toLowerCase().replace(/\s+/g, '-'),
-          title,
-          items: filteredItems
-        };
-      })
-      .filter(section => section.items.length > 0); // Only return sections with items
-
-    // 3. Trending Now (Top viewed products)
-    const trending = await Product.find({})
-      .sort({ viewCount: -1 })
-      .limit(10)
-      .select('name slug image price category rating numReviews tags badge isNewArrival isBestSeller variants countInStock')
-      .lean();
+      .map(([title, items]) => ({
+        id: title.toLowerCase().replace(/\s+/g, '-'),
+        title,
+        items: items.slice(0, 8)
+      }))
+      .filter(section => section.items.length > 0);
 
     res.json({ 
       newArrivals: newArrivals || [], 
@@ -146,8 +172,8 @@ exports.getHomeProducts = async (req, res) => {
       trending: trending || [] 
     });
   } catch (error) {
-    logger.error("Home Data Fetch Critical Failure:", { error: error.message, stack: error.stack });
-    res.status(500).json({ message: "Internal server error while loading home data" });
+    logger.error("Home Data Fetch Critical Failure:", { error: error.message });
+    res.status(500).json({ message: "Internal server error" });
   }
 };
 
@@ -157,14 +183,14 @@ exports.getHomeProducts = async (req, res) => {
 exports.getProductBySlug = async (req, res) => {
   try {
     let product = await Product.findOne({ slug: req.params.slug })
-      .populate('reviews.user', 'name firstName')
+      .populate('reviews.user', 'name firstName avatar')
       .select('-reviews.images -reviews.videos') // Exclude bulky media
       .lean();
 
     // Fallback: Check by ID if not found by slug (and if valid ObjectId)
     if (!product && require('mongoose').Types.ObjectId.isValid(req.params.slug)) {
       product = await Product.findById(req.params.slug)
-        .populate('reviews.user', 'name firstName')
+        .populate('reviews.user', 'name firstName avatar')
         .select('-reviews.images -reviews.videos') // Exclude bulky media
         .lean();
     }
@@ -365,7 +391,7 @@ exports.toggleReviewHelpful = async (req, res) => {
 exports.getProductFullReviews = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id)
-      .populate('reviews.user', 'name firstName')
+      .populate('reviews.user', 'name firstName avatar')
       .select('reviews')
       .lean();
       
@@ -395,8 +421,21 @@ exports.getPublicReviews = async (req, res) => {
     const reviews = await Product.aggregate([
       { $unwind: "$reviews" },
       { $match: { "reviews.isApproved": true } },
+      {
+        $addFields: {
+          "reviewUser": { $toObjectId: "$reviews.user" }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewUser',
+          foreignField: '_id',
+          as: 'userDetails'
+        }
+      },
       { $sort: { "reviews.createdAt": -1 } },
-      { $limit: 30 }, // Reduced limit from 50
+      { $limit: 30 },
       {
         $project: {
           _id: 0,
@@ -409,13 +448,21 @@ exports.getPublicReviews = async (req, res) => {
             name: "$reviews.name",
             rating: "$reviews.rating",
             comment: "$reviews.comment",
-            user: "$reviews.user",
+            user: { $arrayElemAt: ["$userDetails", 0] },
             isVerifiedPurchase: "$reviews.isVerifiedPurchase",
             createdAt: "$reviews.createdAt",
-            // Limit media to first item to avoid massive payloads
             images: { $slice: ["$reviews.images", 1] },
             videos: { $slice: ["$reviews.videos", 1] }
           }
+        }
+      },
+      {
+        $project: {
+          "review.user.password": 0,
+          "review.user.email": 0,
+          "review.user.isAdmin": 0,
+          "review.user.wishlist": 0,
+          "review.user.recentlyViewed": 0
         }
       }
     ]);
@@ -430,47 +477,86 @@ exports.getPublicReviews = async (req, res) => {
 // Get Featured Reviews (Top rated from all products)
 exports.getFeaturedReviews = async (req, res) => {
   try {
-    // 1. Fetch only 50 most recently updated products with reviews
-    // This dramatically reduces memory footprint compared to fetching all products
-    const products = await Product.find({ numReviews: { $gt: 0 } })
-      .sort({ updatedAt: -1 })
-      .limit(50)
-      .select('name slug image reviews')
-      .lean();
-
-    // 2. Flatten reviews in memory
-    let allReviews = [];
-    products.forEach(product => {
-      if (Array.isArray(product.reviews)) {
-        product.reviews.forEach(review => {
-          allReviews.push({
-            productName: product.name,
-            productSlug: product.slug,
-            productImage: product.image,
-            review: review
-          });
-        });
+    // Optimization: Use MongoDB aggregation to fetch latest reviews across all products
+    // This avoids fetching 50+ products and their entire review arrays into memory
+    const reviews = await Product.aggregate([
+      { $match: { numReviews: { $gt: 0 } } },
+      { $unwind: "$reviews" },
+      {
+        $addFields: {
+          "reviewUser": { $toObjectId: "$reviews.user" }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'reviewUser',
+          foreignField: '_id',
+          as: 'userDetails'
+        }
+      },
+      { $sort: { "reviews.createdAt": -1 } },
+      { $limit: 12 },
+      { $project: {
+          _id: "$reviews._id",
+          productName: "$name",
+          productSlug: "$slug",
+          productImage: "$image",
+          review: {
+            _id: "$reviews._id",
+            name: "$reviews.name",
+            rating: "$reviews.rating",
+            comment: "$reviews.comment",
+            user: { $arrayElemAt: ["$userDetails", 0] },
+            createdAt: "$reviews.createdAt",
+            isVerified: "$reviews.isVerified",
+            images: { $slice: [{ $ifNull: ["$reviews.images", []] }, 1] },
+            videos: { $slice: [{ $ifNull: ["$reviews.videos", []] }, 1] }
+          }
+      }},
+      {
+        $project: {
+          "review.user.password": 0,
+          "review.user.email": 0,
+          "review.user.isAdmin": 0,
+          "review.user.wishlist": 0,
+          "review.user.recentlyViewed": 0
+        }
       }
-    });
+    ]);
 
-    // 3. Sort by newest and grab the top 10
-    const sortedReviews = allReviews
-      .sort((a, b) => new Date(b.review.createdAt) - new Date(a.review.createdAt))
-      .slice(0, 10);
-
-    // 4. Optimize media payload
-    const optimizedReviews = sortedReviews.map(item => ({
-      ...item,
-      review: {
-        ...item.review,
-        images: item.review.images?.slice(0, 1) || [],
-        videos: item.review.videos?.slice(0, 1) || []
-      }
-    }));
-
-    res.json(optimizedReviews);
+    res.json(reviews);
   } catch (error) {
+    console.error("Featured Reviews Error:", error);
     res.status(500).json({ message: error.message });
+  }
+};
+
+/**
+ * @desc    Get random products for suggestions (e.g. in Cart Drawer)
+ * @route   GET /api/products/random
+ * @access  Public
+ */
+exports.getRandomProducts = async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 5;
+    const products = await Product.aggregate([
+      { $match: { countInStock: { $gt: 0 } } },
+      { $sample: { size: limit } },
+      { $project: { 
+        name: 1, 
+        slug: 1, 
+        image: 1, 
+        price: 1, 
+        category: 1,
+        rating: 1,
+        numReviews: 1
+      }}
+    ]);
+    res.json(products);
+  } catch (err) {
+    console.error("Random Products Error:", err);
+    res.status(500).json({ message: "Failed to fetch random products" });
   }
 };
 
@@ -491,21 +577,21 @@ exports.deleteProductReview = async (req, res) => {
     // Remove review
     product.reviews = product.reviews.filter(r => r._id.toString() !== req.params.reviewId);
 
-    // --- CLOUDINARY CLEANUP ---
+    // --- MEDIA CLEANUP ---
     if (review.images && review.images.length > 0) {
       review.images.forEach(img => {
-        const publicId = extractPublicId(img);
-        if (publicId) {
-          deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Review Img):", err));
+        const mediaId = extractMediaId(img);
+        if (mediaId) {
+          deleteMedia(mediaId, getResourceType(img)).catch(err => console.error("Media Service Delete Error (Review Img):", err));
         }
       });
     }
 
     if (review.videos && review.videos.length > 0) {
       review.videos.forEach(vid => {
-        const publicId = extractPublicId(vid);
-        if (publicId) {
-          deleteFromCloudinary(publicId, 'video').catch(err => console.error("Cloudinary Delete Error (Review Vid):", err));
+        const mediaId = extractMediaId(vid);
+        if (mediaId) {
+          deleteMedia(mediaId, 'video').catch(err => console.error("Media Service Delete Error (Review Vid):", err));
         }
       });
     }
@@ -700,17 +786,32 @@ exports.updateProduct = async (req, res) => {
       const oldVariants = product.variants ? product.variants.map(v => v.toObject()) : [];
 
       product.name = name || product.name;
-      product.price = price || product.price;
-      product.description = description || product.description;
+      product.price = price !== undefined ? Number(price) : product.price;
+      product.description = description !== undefined ? description : product.description;
       product.seo = seo || product.seo;
-      product.richDescription = richDescription || product.richDescription;
+      product.richDescription = richDescription !== undefined ? richDescription : product.richDescription;
+      product.category = category || product.category;
+      product.subcategory = subcategory !== undefined ? subcategory : product.subcategory;
+      product.countInStock = countInStock !== undefined ? Number(countInStock) : product.countInStock;
+      product.discountPrice = discountPrice !== undefined ? Number(discountPrice) : product.discountPrice;
+      product.isBestSeller = isBestSeller !== undefined ? isBestSeller : product.isBestSeller;
+      product.isNewArrival = isNewArrival !== undefined ? isNewArrival : product.isNewArrival;
+      product.badge = badge !== undefined ? badge : product.badge;
+      product.tags = Array.isArray(tags) ? tags.filter(t => t && t.trim()).map(t => t.trim()) : product.tags;
+      product.specs = Array.isArray(specs) ? specs : product.specs;
+      product.video = video !== undefined ? video : product.video;
 
-      // --- CLOUDINARY CLEANUP ---
+      // CRITICAL: Save variants — this was missing, causing admin variant edits to be lost
+      if (Array.isArray(variants)) {
+        product.variants = variants;
+      }
+
+      // --- MEDIA CLEANUP ---
       // 1. Check if main image changed
       if (image && image !== product.image) {
-        const oldPublicId = extractPublicId(product.image);
-        if (oldPublicId) {
-          deleteFromCloudinary(oldPublicId).catch(err => console.error("Cloudinary Delete Error (Main):", err));
+        const oldId = extractMediaId(product.image);
+        if (oldId) {
+          deleteMedia(oldId, getResourceType(product.image)).catch(err => console.error("Media Service Delete Error (Main):", err));
         }
       }
 
@@ -718,9 +819,9 @@ exports.updateProduct = async (req, res) => {
       if (images && Array.isArray(images)) {
         const removedImages = product.images.filter(img => !images.includes(img));
         removedImages.forEach(img => {
-          const publicId = extractPublicId(img);
-          if (publicId) {
-            deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Gallery):", err));
+          const oldId = extractMediaId(img);
+          if (oldId) {
+            deleteMedia(oldId, getResourceType(img)).catch(err => console.error("Media Service Delete Error (Gallery):", err));
           }
         });
       }
@@ -806,7 +907,7 @@ exports.updateProduct = async (req, res) => {
 // @access  Private/Admin
 exports.getAllReviews = async (req, res) => {
   try {
-    const products = await Product.find({ 'reviews.0': { $exists: true } });
+    const products = await Product.find({ 'reviews.0': { $exists: true } }).populate('reviews.user', 'name firstName lastName avatar');
     console.log(`ADMIN REVIEWS: Found ${products.length} products with reviews.`);
 
     let allReviews = [];
@@ -847,28 +948,28 @@ exports.deleteProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
     if (product) {
-      // --- CLOUDINARY CLEANUP ---
+      // --- MEDIA CLEANUP ---
       // Delete main image
-      const mainPublicId = extractPublicId(product.image);
-      if (mainPublicId) {
-        deleteFromCloudinary(mainPublicId).catch(err => console.error("Cloudinary Delete Error (Main):", err));
+      const mainId = extractMediaId(product.image);
+      if (mainId) {
+        deleteMedia(mainId, getResourceType(product.image)).catch(err => console.error("Media Service Delete Error (Main):", err));
       }
 
       // Delete gallery images
       if (product.images && product.images.length > 0) {
         product.images.forEach(img => {
-          const publicId = extractPublicId(img);
-          if (publicId) {
-            deleteFromCloudinary(publicId).catch(err => console.error("Cloudinary Delete Error (Gallery):", err));
+          const mediaId = extractMediaId(img);
+          if (mediaId) {
+            deleteMedia(mediaId, getResourceType(img)).catch(err => console.error("Media Service Delete Error (Gallery):", err));
           }
         });
       }
 
-      // Delete video if it's a Cloudinary URL
+      // Delete video if it exists
       if (product.video) {
-        const videoPublicId = extractPublicId(product.video);
-        if (videoPublicId) {
-          deleteFromCloudinary(videoPublicId, 'video').catch(err => console.error("Cloudinary Delete Error (Video):", err));
+        const videoId = extractMediaId(product.video);
+        if (videoId) {
+          deleteMedia(videoId, 'video').catch(err => console.error("Media Service Delete Error (Video):", err));
         }
       }
       // -------------------------
@@ -936,7 +1037,7 @@ exports.bulkUpdateProducts = async (req, res) => {
         });
       }
 
-      return Product.findByIdAndUpdate(id, { $set: filteredUpdate }, { new: true });
+      return Product.findByIdAndUpdate(id, { $set: filteredUpdate }, { returnDocument: 'after' });
     });
 
     await Promise.all(updatePromises);
@@ -1007,11 +1108,18 @@ const triggerPriceDropAlerts = async (product) => {
 // @access  Public
 exports.getFilterData = async (req, res) => {
   try {
+    // Parallel fetch using distinct() for simple fields
+    // This is much faster than a full collection facet aggregation
+    const [categories, subcategories] = await Promise.all([
+      Product.distinct('category', { isActive: true }),
+      Product.distinct('subcategory', { isActive: true })
+    ]);
+
+    // For variants and specs, we still need aggregation but let's make it targeted
     const results = await Product.aggregate([
+      { $match: { isActive: true } },
       {
         $facet: {
-          categories: [{ $group: { _id: "$category" } }],
-          subcategories: [{ $group: { _id: "$subcategory" } }],
           variantSizes: [
             { $unwind: "$variants" },
             { $group: { _id: "$variants.size" } }
@@ -1019,16 +1127,6 @@ exports.getFilterData = async (req, res) => {
           variantColors: [
             { $unwind: "$variants" },
             { $group: { _id: "$variants.color" } }
-          ],
-          specSizes: [
-            { $unwind: "$specs" },
-            { $match: { "specs.key": { $regex: /size|dimension/i } } },
-            { $group: { _id: "$specs.value" } }
-          ],
-          specColors: [
-            { $unwind: "$specs" },
-            { $match: { "specs.key": { $regex: /color|shade|finish/i } } },
-            { $group: { _id: "$specs.value" } }
           ],
           allSpecs: [
             { $unwind: "$specs" },
@@ -1039,30 +1137,40 @@ exports.getFilterData = async (req, res) => {
     ]);
 
     const data = results[0];
-    const sizes = new Set([
-      ...data.variantSizes.map(v => v._id),
-      ...data.specSizes.map(v => v._id)
-    ].filter(Boolean));
     
-    const colors = new Set([
-      ...data.variantColors.map(v => v._id),
-      ...data.specColors.map(v => v._id)
-    ].filter(Boolean));
+    // Process specs to extract sizes and colors
+    const specSizes = new Set();
+    const specColors = new Set();
+    const otherSpecs = {};
 
-    const specs = {};
     data.allSpecs.forEach(item => {
       const key = item._id;
       const lowerKey = key.toLowerCase();
-      if (['color', 'shade', 'finish', 'size', 'dimension', 'dimensions'].includes(lowerKey)) return;
-      specs[key] = item.values.sort();
+      if (lowerKey.includes('size') || lowerKey.includes('dimension')) {
+        item.values.forEach(v => specSizes.add(v));
+      } else if (lowerKey.includes('color') || lowerKey.includes('shade') || lowerKey.includes('finish')) {
+        item.values.forEach(v => specColors.add(v));
+      } else {
+        otherSpecs[key] = item.values.sort();
+      }
     });
 
+    const finalSizes = new Set([
+      ...data.variantSizes.map(v => v._id),
+      ...Array.from(specSizes)
+    ].filter(Boolean));
+    
+    const finalColors = new Set([
+      ...data.variantColors.map(v => v._id),
+      ...Array.from(specColors)
+    ].filter(Boolean));
+
     res.json({
-      categories: ['All', ...data.categories.map(c => c._id).filter(c => c && c !== 'All')].slice(0, 15),
-      subcategories: data.subcategories.map(s => s._id).filter(Boolean),
-      sizes: Array.from(sizes).sort(),
-      colors: Array.from(colors).sort(),
-      specs
+      categories: ['All', ...categories.filter(c => c && c !== 'All')].slice(0, 15),
+      subcategories: subcategories.filter(Boolean),
+      sizes: Array.from(finalSizes).sort(),
+      colors: Array.from(finalColors).sort(),
+      specs: otherSpecs
     });
   } catch (error) {
     console.error("Filter Aggregation Error:", error);

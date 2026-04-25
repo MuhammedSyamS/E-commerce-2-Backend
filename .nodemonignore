@@ -1,0 +1,8 @@
+node_modules
+logs
+uploads
+client
+slook
+.git
+*.test.js
+scripts/backup.sh
