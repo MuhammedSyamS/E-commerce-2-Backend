@@ -672,17 +672,16 @@ const updateOrderStatus = async (req, res) => {
 // @route   GET /api/orders/admin/stats
 // @access  Private/Admin
 
-let cachedStats = null;
-let lastFetchTime = 0;
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-
 const getAdminStats = async (req, res) => {
   try {
-    const now = Date.now();
     const { forceRefresh = false } = req.query;
+    const cacheKey = 'admin_stats_global';
 
-    if (cachedStats && (now - lastFetchTime < CACHE_DURATION) && !forceRefresh) {
-      return res.json(cachedStats);
+    if (!forceRefresh) {
+      const cached = await redis.get(cacheKey);
+      if (cached) {
+        return res.json(JSON.parse(cached));
+      }
     }
 
     // Use Promise.all to run all independent aggregations and counts in parallel
@@ -943,8 +942,8 @@ const getAdminStats = async (req, res) => {
       ]
     };
 
-    cachedStats = statsResponse;
-    lastFetchTime = now;
+    // Cache result for 5 minutes
+    await redis.set(cacheKey, JSON.stringify(statsResponse), 'EX', 300);
 
     res.json(statsResponse);
   } catch (error) {

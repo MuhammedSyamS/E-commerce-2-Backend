@@ -543,7 +543,7 @@ exports.getNotifications = async (req, res) => {
     const Notification = require('../models/Notification');
     // Fetch from Notification Collection
     const notifications = await Notification.find({
-      $or: [{ user: req.user._id }, { user: null }] // Include global alerts
+      user: { $in: [req.user._id, null] } // Include user-specific and global alerts
     }).sort({ createdAt: -1 }).limit(20).lean();
 
     res.json(notifications);
