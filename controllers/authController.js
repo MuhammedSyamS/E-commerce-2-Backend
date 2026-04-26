@@ -164,18 +164,58 @@ exports.getUserProfile = async (req, res) => {
       return res.status(404).json({ message: "User not found" });
     }
 
-    // Clean up dead wishlist items
+    // Clean up and heal cart items
+    const Product = require('../models/Product');
     const validWishlist = user.wishlist.filter(item => item !== null);
+    
+    // Self-Healing Cart: Fill in missing data for any corrupted items
+    let cartModified = false;
+    const healedCart = [];
+    
+    for (let item of user.cart) {
+        if (!item.product) continue; // Skip dead products
+        
+        if (!item.name || !item.price || !item.image) {
+            const fullProduct = await Product.findById(item.product);
+            if (fullProduct) {
+                item.name = item.name || fullProduct.name;
+                item.price = item.price || fullProduct.price;
+                item.image = item.image || fullProduct.image;
+                cartModified = true;
+            }
+        }
+        healedCart.push(item);
+    }
 
-    if (validWishlist.length !== user.wishlist.length) {
-      await User.updateOne({ _id: user._id }, { wishlist: validWishlist.map(p => p._id) });
+    const healedSaved = [];
+    for (let item of user.savedForLater) {
+        if (!item.product) continue;
+        if (!item.name || !item.price || !item.image) {
+            const fullProduct = await Product.findById(item.product);
+            if (fullProduct) {
+                item.name = item.name || fullProduct.name;
+                item.price = item.price || fullProduct.price;
+                item.image = item.image || fullProduct.image;
+                cartModified = true;
+            }
+        }
+        healedSaved.push(item);
+    }
+
+    if (cartModified || validWishlist.length !== user.wishlist.length) {
+      await User.updateOne({ _id: user._id }, { 
+          wishlist: validWishlist.map(p => p._id),
+          cart: healedCart,
+          savedForLater: healedSaved
+      });
     }
 
     res.json({
       _id: user._id,
       firstName: user.firstName,
       lastName: user.lastName,
-      cart: user.cart,
+      cart: healedCart,
+      savedForLater: healedSaved,
       phone: user.phone,
       wishlist: validWishlist.map(p => p._id), // Only valid IDs
       referralCode: user.referralCode,

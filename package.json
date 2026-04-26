@@ -5,7 +5,7 @@
   "private": true,
   "scripts": {
     "start": "node index.js",
-    "dev": "nodemon --watch . --ext js,json,env index.js",
+    "dev": "nodemon --watch . --ext js,json,env --ignore logs/ --ignore .git_*/ index.js",
     "cleanup": "node scripts/force_cleanup.js",
     "seed": "node seed.js",
     "seed:reviews": "node scripts/seed_reviews.js"

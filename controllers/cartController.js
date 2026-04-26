@@ -24,14 +24,22 @@ const addToCart = async (req, res) => {
       return item.product.toString() === productId && isSameVariant(item.selectedVariant, selectedVariant);
     });
 
+    const Product = require('../models/Product');
+    const product = await Product.findById(productId);
+    if (!product) return res.status(404).json({ message: "Product not found" });
+
     if (itemIndex > -1) {
       user.cart[itemIndex].quantity += quantity || 1;
+      // Sync latest price and info
+      user.cart[itemIndex].name = product.name;
+      user.cart[itemIndex].price = selectedVariant?.price || product.price;
+      user.cart[itemIndex].image = selectedVariant?.image || product.image;
     } else {
       user.cart.push({
         product: productId,
-        name: req.body.name,
-        price: req.body.price,
-        image: req.body.image,
+        name: product.name,
+        price: selectedVariant?.price || product.price,
+        image: selectedVariant?.image || product.image,
         quantity: quantity || 1,
         selectedVariant: selectedVariant
       });

@@ -42,7 +42,7 @@ const registerLimiter = createLimiter(1, 3, 'Too many registration attempts. Ple
 const otpLimiter = createLimiter(10, 3, 'Too many OTP requests. Please wait 10 minutes.');
 const orderLimiter = createLimiter(1, 20, 'Order velocity too high. Please wait.');
 const paymentLimiter = createLimiter(1, 10, 'Payment attempts throttled. Please wait.');
-const globalApiLimiter = createLimiter(1, 100, 'Global API rate limit reached.');
+const globalApiLimiter = createLimiter(1, 500, 'Global API rate limit reached.');
 
 module.exports = {
   loginLimiter,
