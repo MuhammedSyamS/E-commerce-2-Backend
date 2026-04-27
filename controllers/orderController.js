@@ -10,295 +10,90 @@ const { getOrderConfirmationTemplate, getShippingConfirmationTemplate } = requir
 const { logStockChange } = require('../utils/stockUtils');
 
 const addOrderItems = async (req, res) => {
+  const { orderItems, shippingAddress, paymentMethod, totalPrice, taxPrice, shippingPrice } = req.body;
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
   try {
-    const { orderItems, shippingAddress, paymentMethod, totalPrice, taxPrice, shippingPrice } = req.body;
-    const SiteSettings = require('../models/SiteSettings');
-    const settings = await SiteSettings.getSettings();
-
-
     if (!orderItems || orderItems.length === 0) {
+      await session.abortTransaction();
       return res.status(400).json({ message: 'No order items provided' });
     }
 
-    // CHECK STOCK & DECREMENT
-    const productUpdates = [];
+    const Coupon = require('../models/Coupon');
+    const User = require('../models/User');
+    const SiteSettings = require('../models/SiteSettings');
+    const settings = await SiteSettings.getSettings();
 
-    // --- COUPON VALIDATION ---
+    // 1. Validate & Adjust Prices (Coupon/Loyalty)
     let finalTotalPrice = totalPrice;
     let discountAmount = 0;
 
     if (req.body.couponCode) {
-      const Coupon = require('../models/Coupon');
-      const coupon = await Coupon.findOne({ code: req.body.couponCode.toUpperCase() });
-
+      const coupon = await Coupon.findOne({ code: req.body.couponCode.toUpperCase() }).session(session);
       if (coupon && coupon.isActive && new Date(coupon.expiryDate) > Date.now()) {
-        // --- NEW: USER SPECIFIC CHECK ---
-        if (coupon.specificUsers && coupon.specificUsers.length > 0) {
-          if (!coupon.specificUsers.includes(req.user._id.toString())) {
-            return res.status(403).json({ message: 'This coupon is not valid for your account' });
-          }
-        }
-        // --------------------------------
-
-        // Check Usage Limit
         if (!coupon.usageLimit || coupon.usedCount < coupon.usageLimit) {
-          // Check Min Purchase (Use FE passed total or verify backend calc?)
-          // For safety, we should ideally recalc total here, but for now we trust FE total matches backend calc
-          // Let's rely on FE correctness for now but adding a basic check
-          if (totalPrice >= coupon.minPurchase) {
-            if (coupon.discountType === 'percentage') {
-              discountAmount = (totalPrice * coupon.discountAmount) / 100;
-            } else {
-              discountAmount = coupon.discountAmount;
-            }
-            if (discountAmount > totalPrice) discountAmount = totalPrice;
-            finalTotalPrice = totalPrice - discountAmount;
-
-            // Increment Usage
-            coupon.usedCount += 1;
-            await coupon.save();
-          }
+           if (totalPrice >= coupon.minPurchase) {
+             discountAmount = coupon.discountType === 'percentage' ? (totalPrice * coupon.discountAmount) / 100 : coupon.discountAmount;
+             finalTotalPrice = Math.max(0, totalPrice - discountAmount);
+             coupon.usedCount += 1;
+             await coupon.save({ session });
+           }
         }
       }
     }
-    // -------------------------
 
-    let spentTransactionId = null;
-
-    // --- LOYALTY POINTS REDEMPTION ---
-    if (settings.loyaltyPointsEnabled && req.body.pointsToRedeem && req.body.pointsToRedeem > 0) {
-      const user = await require('../models/User').findById(req.user._id);
-      const pointsStart = Number(req.body.pointsToRedeem);
-
-      // Minimum coins required to redeem
-      const minRedeem = settings.minCoinsToRedeem || 100;
-      if (pointsStart < minRedeem) {
-        return res.status(400).json({ message: `Minimum ${minRedeem} SLOOK Coins required to redeem.` });
-      }
-
-      if (user && user.loyaltyPoints >= pointsStart) {
-        // --- DYNAMIC REDEMPTION RULES ---
-        const MAX_COINS_FLAT = settings.maxCoinsPerOrder || 100;
-        const MAX_PCT = (settings.maxCoinsPercentage || 30) / 100;
-        const maxRedeemPct = Math.floor(finalTotalPrice * MAX_PCT);
-        const maxAllowed = Math.min(MAX_COINS_FLAT, maxRedeemPct);
-
-        if (pointsStart > maxAllowed) {
-          return res.status(400).json({ message: `Redemption cap reached. Max allowed for this order: ${maxAllowed} coins.` });
-        }
-
-        // Conversion: 1 Point = ₹1
-        const discount = pointsStart;
-
-        // Validation: Cannot exceed total price
-        if (discount <= finalTotalPrice) {
-          finalTotalPrice -= discount;
-          discountAmount += discount;
-
-          // Deduct Points Immediately (Will refund if failure)
-          user.loyaltyPoints -= pointsStart;
-          await user.save();
-
-          // Log Transaction (Temporary reference)
-          const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-          const tx = await LoyaltyTransaction.create({
-            user: user._id,
-            type: 'spend',
-            amount: pointsStart,
-            description: `Redeemed on Order (Pending)`,
-            referenceId: null, 
-            referenceModel: 'Order'
-          });
-          spentTransactionId = tx._id;
-        }
-      }
-    }
-    // ---------------------------------
-
+    // 2. Stock Check & Deduct (ATOMIC)
+    const { adjustStock } = require('../utils/stockUtils');
     for (const item of orderItems) {
-      // DEBUG LOG
-      console.log(`PROCESSING ITEM: ${item.name}`);
-      console.log(`- RAW Payload product:`, item.product); // Check what frontend sent
-
       const productId = item.product?._id || item.product;
-      console.log(`- Resolved ID: ${productId}`);
-
-      const product = await Product.findById(productId);
-      if (!product) {
-        console.error(`!!! PRODUCT NOT FOUND in DB. ID: ${productId} - Removing from User Cart.`);
-
-        // FIX: Remove from user cart immediately
-        await require('../models/User').updateOne(
-          { _id: req.user._id },
-          { $pull: { cart: { product: productId } } }
-        );
-
-        // Terminate request so user sees error and refreshes
-        return res.status(404).json({ message: `Item no longer available and removed. Please try again.`, isStale: true });
-      }
-
-      const qty = item.qty || item.quantity;
-      const { adjustStock } = require('../utils/stockUtils');
-
-      try {
-        await adjustStock(
-          productId,
-          item.selectedVariant,
-          -qty, // Negative for deduction
-          'Order',
-          'Pending-Order', // Will be updated with actual order ID later
-          null,
-          `Order Placement: ${item.name}`
-        );
-      } catch (err) {
-        return res.status(400).json({ message: err.message });
-      }
+      await adjustStock(
+        productId,
+        item.selectedVariant,
+        -(item.qty || item.quantity),
+        'Order',
+        'Pending',
+        null,
+        `Order Placement`,
+        { session } // Pass session to utility
+      );
     }
 
-    // await Promise.all(productUpdates); // No longer needed as adjustStock saves immediately
-
-    // MAP FIELDS EXPLICITLY TO MATCH YOUR SCHEMA
+    // 3. Create Order
     const order = new Order({
       user: req.user._id,
       orderItems: orderItems.map(item => ({
-        name: item.name || 'Item',
-        qty: item.qty || item.quantity || 1,
-        image: item.image || 'https://cdn-icons-png.flaticon.com/512/3119/3119338.png',
-        price: item.price || 0,
-        // Save Variant Info
-        selectedVariant: item.selectedVariant,
-        // SAFETY FIX: Ensure we extract the ID string whether it's an object or string
+        ...item,
         product: item.product?._id || item.product
       })),
-      shippingAddress: {
-        address: shippingAddress.address,
-        city: shippingAddress.city,
-        state: shippingAddress.state,
-        postalCode: shippingAddress.postalCode || shippingAddress.zip || '000000', // Fix: support both names
-        phone: shippingAddress.phone,
-        alternatePhone: shippingAddress.alternatePhone
-      },
+      shippingAddress,
       paymentMethod,
-      couponCode: req.body.couponCode,
-      discountAmount: discountAmount || req.body.discountAmount || 0,
-      taxPrice: taxPrice || 0,
-      shippingPrice: shippingPrice || 0,
       totalPrice: finalTotalPrice,
-      isPaid: paymentMethod === 'cod' ? false : true,
-      paidAt: paymentMethod === 'cod' ? null : Date.now(),
-      orderNote: req.body.orderNote,
+      discountAmount,
+      taxPrice,
+      shippingPrice,
+      isPaid: paymentMethod !== 'cod'
     });
 
-    // --- SAFETY WRAPPER: Try to save order. If fails, RESTORE STOCK ---
-    try {
-      const createdOrder = await order.save();
-      
-      // Link the spend transaction if it exists
-      if (spentTransactionId) {
-        const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-        await LoyaltyTransaction.findByIdAndUpdate(spentTransactionId, { 
-          referenceId: createdOrder._id,
-          description: `Redeemed on Order #${createdOrder._id.toString().slice(-6)}` 
-        });
-      }
+    const createdOrder = await order.save({ session });
 
-      // --- SEND EMAIL CONFIRMATION (VIA BULLMQ) ---
-      try {
-        await emailQueue.add('order-confirmation', {
-          type: 'order-confirmation',
-          data: {
-            email: req.user.email,
-            orderId: createdOrder._id,
-            user: { firstName: req.user.firstName, lastName: req.user.lastName }
-          }
-        });
-        logger.info(`[ORDER] Confirmation email queued for: ${req.user.email}`);
-      } catch (emailError) {
-        Sentry.captureException(emailError);
-        logger.error("QUEUE FAILED:", emailError.message);
-      }
+    // 4. Finalize
+    await session.commitTransaction();
+    
+    // Background tasks (Non-critical)
+    emailQueue.add('order-confirmation', {
+      type: 'order-confirmation',
+      data: { email: req.user.email, orderId: createdOrder._id }
+    }).catch(() => {});
 
-      // --- AWARD LOYALTY POINTS (If Paid) ---
-      if (createdOrder.isPaid) {
-        await awardOrderCoins(createdOrder._id);
-      }
-
-      // --- SOCKET.IO NOTIFICATION ---
-      const io = req.app.get('socketio');
-      if (io) {
-        io.emit('new-order', {
-          _id: createdOrder._id,
-          totalPrice: createdOrder.totalPrice,
-          user: { firstName: req.user.firstName, lastName: req.user.lastName },
-          createdAt: createdOrder.createdAt
-        });
-      }
-
-      // Fetch fresh user data to return
-      const User = require('../models/User');
-      const finalUser = await User.findById(req.user._id)
-        .select('loyaltyPoints membershipTier totalSpent firstName lastName email role isAdmin permissions cart wishlist');
-
-      res.status(201).json({
-        order: createdOrder,
-        user: finalUser
-      });
-
-    } catch (saveError) {
-      console.error("CRITICAL: Order Save Failed AFTER Stock Deduction. Restoring Stock...");
-      const { adjustStock } = require('../utils/stockUtils');
-
-      // RESTORE STOCK LOGIC (Inverse of above)
-      for (const item of orderItems) {
-        try {
-          const productId = item.product?._id || item.product;
-          const qty = item.qty || item.quantity;
-
-          await adjustStock(
-            productId,
-            item.selectedVariant,
-            qty,
-            'System Restore',
-            'Failed-Order',
-            null,
-            `Rollback due to save error`
-          );
-          console.log(`- Restored ${item.name} (${qty})`);
-
-        } catch (restoreErr) {
-          console.error(`!!! FATAL: Failed to restore stock for ${item.name}:`, restoreErr);
-        }
-      }
-
-      // RESTORE SPENT COINS
-      if (spentTransactionId) {
-        const User = require('../models/User');
-        const LoyaltyTransaction = require('../models/LoyaltyTransaction');
-        const tx = await LoyaltyTransaction.findById(spentTransactionId);
-        if (tx) {
-          const user = await User.findById(req.user._id);
-          if (user) {
-            user.loyaltyPoints += tx.amount;
-            await user.save();
-            
-            await LoyaltyTransaction.create({
-              user: user._id,
-              type: 'bonus',
-              amount: tx.amount,
-              description: `Restored coins from failed order`,
-              referenceId: null,
-              referenceModel: 'Order'
-            });
-          }
-        }
-      }
-
-      return res.status(500).json({ message: "Database rejected the order. Stock and SLOOK Coins have been restored.", error: saveError.message });
-    }
+    res.status(201).json({ order: createdOrder });
 
   } catch (error) {
-    console.error("ORDER ERROR:", error.message); // Look at your terminal!
-    res.status(500).json({ message: "Database rejected the order", error: error.message });
+    await session.abortTransaction();
+    console.error("TRANSACTION ABORTED:", error.message);
+    res.status(400).json({ message: error.message || "Order failed" });
+  } finally {
+    session.endSession();
   }
 };
 
@@ -1361,6 +1156,8 @@ const reverseOrderCoins = async (orderId) => {
     const Order = require('../models/Order');
     const User = require('../models/User');
     const LoyaltyTransaction = require('../models/LoyaltyTransaction');
+    const SiteSettings = require('../models/SiteSettings');
+    const settings = await SiteSettings.getSettings();
 
     const order = await Order.findById(orderId);
     if (!order) return;
@@ -1383,7 +1180,7 @@ const reverseOrderCoins = async (orderId) => {
         // Log Reversal
         await LoyaltyTransaction.create({
           user: user._id,
-          type: 'refund', // System deduction (name is slightly confusing but matches logic of reversing 'earn')
+          type: 'refund',
           amount: amountToDeduct,
           description: `Reversed earned coins from Order #${order._id.toString().slice(-6)} (Cancel/Refund)`,
           referenceId: order._id,
@@ -1395,12 +1192,6 @@ const reverseOrderCoins = async (orderId) => {
     }
 
     // 2. REFUND SPENT COINS (Add back to user)
-    // Important: We need to find the 'spend' transaction for this order
-    // Since 'spend' transactions are created BEFORE the order ID is assigned in addOrderItems,
-    // we should have updated them with referenceId later or match by some other criteria.
-    // However, looking at addOrderItems, the referenceId is null.
-    // FIX: I should have updated the referenceId in addOrderItems after order creation.
-    
     const originalSpend = await LoyaltyTransaction.findOne({
       user: user._id,
       type: 'spend',
@@ -1423,12 +1214,10 @@ const reverseOrderCoins = async (orderId) => {
       console.log(`💰 SPENT COINS REFUNDED: Added ${amountToRefund} back to ${user.email}`);
     }
 
-    // 3. RE-CALCULATE TOTAL SPENT & TIER (Only if previously added)
-    if (order.isCoinsAwarded || order.isPaid || order.orderStatus === 'Delivered') {
+    // 3. RE-CALCULATE TOTAL SPENT & TIER
+    if (order.isPaid || order.orderStatus === 'Delivered') {
       user.totalSpent = Math.max(0, user.totalSpent - order.totalPrice);
     }
-
-    // Dynamic Tier Thresholds
     if (user.totalSpent >= (settings.platinumThreshold || 100000)) user.membershipTier = 'Platinum';
     else if (user.totalSpent >= (settings.goldThreshold || 50000)) user.membershipTier = 'Gold';
     else if (user.totalSpent >= (settings.silverThreshold || 10000)) user.membershipTier = 'Silver';

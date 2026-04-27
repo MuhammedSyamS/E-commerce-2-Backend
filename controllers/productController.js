@@ -641,62 +641,30 @@ exports.replyToReview = async (req, res) => {
   }
 };
 
-// Get Logged In User's Reviews
+// Get Logged In User's Reviews (Optimized Aggregation)
 exports.getUserReviews = async (req, res) => {
-  try {
-    const userId = req.user._id.toString();
-    console.log("API: Fetching reviews for user ID:", userId);
+  const userId = req.user._id;
+  const page = parseInt(req.query.page) || 1;
+  const pageSize = parseInt(req.query.pageSize) || 10;
 
-    // 1. Fetch all products that HAVE reviews
-    const products = await Product.find({ 'reviews.0': { $exists: true } });
-
-    // 2. Filter manually in JS (Foolproof vs Aggregation types)
-    const userReviews = [];
-
-    products.forEach(product => {
-      if (product.reviews && Array.isArray(product.reviews)) {
-        product.reviews.forEach(review => {
-          // Check if this review belongs to user
-          // Robust check: handle nulls, strings, objects
-          const reviewUserId = review.user ? review.user.toString() : null;
-
-          if (reviewUserId === userId) {
-            userReviews.push({
-              _id: product._id, // Add Product ID for Delete functionality
-              productName: product.name,
-              productSlug: product.slug,
-              productImage: product.image,
-              review: review
-            });
-          }
-        });
+  const results = await Product.aggregate([
+    { $unwind: "$reviews" },
+    { $match: { "reviews.user": userId } },
+    { $sort: { "reviews.createdAt": -1 } },
+    { $skip: (page - 1) * pageSize },
+    { $limit: pageSize },
+    {
+      $project: {
+        _id: "$_id",
+        productName: "$name",
+        productSlug: "$slug",
+        productImage: "$image",
+        review: "$reviews"
       }
-    });
+    }
+  ]);
 
-    // 3. Sort by Date Newest
-    userReviews.sort((a, b) => {
-      const dateA = new Date(a.review.createdAt || 0);
-      const dateB = new Date(b.review.createdAt || 0);
-      return dateB - dateA;
-    });
-
-    console.log(`API: Found ${userReviews.length} reviews via JS Filter.`);
-
-    // Optimization: Slice media for user reviews
-    const optimizedReviews = userReviews.map(item => ({
-      ...item,
-      review: {
-        ...item.review,
-        images: item.review.images?.slice(0, 3) || [],
-        videos: item.review.videos?.slice(0, 1) || []
-      }
-    }));
-
-    res.json(optimizedReviews);
-  } catch (error) {
-    console.error("Error fetching user reviews:", error);
-    res.status(500).json({ message: error.message });
-  }
+  res.json(results);
 };
 
 // --- ADMIN CONTROLLERS ---

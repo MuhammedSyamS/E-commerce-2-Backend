@@ -60,19 +60,28 @@ router.post('/send', protect, admin, async (req, res) => {
     // Save to DB (Global)
     await Notification.create({ title, message, type: 'system' });
 
-    // Send to ALL users with subscriptions
-    // Find users where pushSubscription is set and not empty
-    const users = await User.find({
-        'pushSubscription.endpoint': { $exists: true }
-    });
-
+    // Find users with active subscriptions
+    const users = await User.find({ 'pushSubscription.endpoint': { $exists: true } });
     const payload = JSON.stringify({ title, body: message });
 
-    users.forEach(u => {
-        webpush.sendNotification(u.pushSubscription, payload).catch(err => console.error(err));
-    });
+    let sentCount = 0;
+    let failedCount = 0;
 
-    res.json({ message: `Push sent to ${users.length} devices` });
+    await Promise.all(users.map(async (u) => {
+        try {
+            await webpush.sendNotification(u.pushSubscription, payload);
+            sentCount++;
+        } catch (err) {
+            // Remove invalid/expired subscriptions (404 Not Found or 410 Gone)
+            if (err.statusCode === 404 || err.statusCode === 410) {
+                u.pushSubscription = undefined;
+                await u.save();
+                failedCount++;
+            }
+        }
+    }));
+
+    res.json({ message: `Push sent to ${sentCount} devices. Removed ${failedCount} stale subscriptions.` });
 });
 
 // 4. Mark Single Notification as Read

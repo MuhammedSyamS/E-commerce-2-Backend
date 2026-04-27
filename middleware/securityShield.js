@@ -1,51 +1,59 @@
 const logger = require('../utils/logger');
 const rateLimit = require('express-rate-limit');
-
-let hpp;
-try { hpp = require('hpp'); } catch (e) { logger.warn('⚠️ hpp not found.'); }
-
-let csurf;
-try { csurf = require('csurf'); } catch (e) { logger.warn('⚠️ csurf not found.'); }
+const helmet = require('helmet');
+const mongoSanitize = require('express-mongo-sanitize');
 
 // 1. HTTP Parameter Pollution Protection
-const hppProtection = hpp ? hpp() : (req, res, next) => next();
+const hpp = require('hpp');
+const hppProtection = hpp();
 
-// 2. CSRF Protection
-const csrfProtection = csurf ? csurf({ 
-  cookie: { 
-    httpOnly: true, 
-    secure: process.env.NODE_ENV === 'production',
-    sameSite: 'strict'
-  } 
-}) : (req, res, next) => next();
-
-// 3. Brute Force Lockout Escalation
-// If a user fails too many times, lock their IP for 24 hours
-const bruteForceLockout = rateLimit({
-  windowMs: 24 * 60 * 60 * 1000, // 24 hours
-  max: 50, // Total failed attempts per IP
-  skipSuccessfulRequests: true,
-  message: { success: false, message: 'Your IP has been flagged for suspicious activity. Access restricted for 24h.' },
-  handler: (req, res, next, options) => {
-    logger.error(`🔥 SECURITY ALERT: IP ${req.ip} has been blocked for 24h due to brute force attempts.`);
-    res.status(options.statusCode).send(options.message);
-  }
+// 2. Global Security Headers (Helmet)
+const helmetConfig = helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://checkout.stripe.com"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https://res.cloudinary.com", "https://*.amazonaws.com"],
+      connectSrc: ["'self'", "https://api.stripe.com"],
+      frameSrc: ["'self'", "https://checkout.stripe.com"],
+      upgradeInsecureRequests: [],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
 });
 
-// 4. Suspicious Activity Logger
-const activityLogger = (req, res, next) => {
-  const suspiciousKeywords = ['<script>', 'DROP TABLE', 'UNION SELECT', '../'];
-  const bodyString = JSON.stringify(req.body);
+// 3. Mongo Injection Protection
+const sanitizeData = mongoSanitize();
+
+// 4. Brute Force Lockout
+const bruteForceLockout = rateLimit({
+  windowMs: 24 * 60 * 60 * 1000, 
+  max: 50, 
+  skipSuccessfulRequests: true,
+  message: { success: false, message: 'Suspicious activity detected. Access restricted.' },
+});
+
+// 5. Global Error Handler (Prevents stack leaks)
+const globalErrorHandler = (err, req, res, next) => {
+  logger.error(`[SERVER ERROR] ${err.message}`);
   
-  if (suspiciousKeywords.some(key => bodyString.includes(key))) {
-    logger.warn(`🛑 SUSPICIOUS ACTIVITY DETECTED: IP ${req.ip} -> ${req.originalUrl} | Payload: ${bodyString}`);
-  }
-  next();
+  const statusCode = err.statusCode || 500;
+  const message = process.env.NODE_ENV === 'production' 
+    ? 'An internal server error occurred' 
+    : err.message;
+
+  res.status(statusCode).json({
+    success: false,
+    message,
+    stack: process.env.NODE_ENV === 'production' ? null : err.stack
+  });
 };
 
 module.exports = {
   hppProtection,
-  csrfProtection,
+  helmetConfig,
+  sanitizeData,
   bruteForceLockout,
-  activityLogger
+  globalErrorHandler
 };

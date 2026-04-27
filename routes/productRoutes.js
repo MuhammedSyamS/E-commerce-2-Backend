@@ -1,144 +1,46 @@
 const express = require('express');
 const router = express.Router();
-
-// Import your controller functions
-const {
-  getProducts,
-  getHomeProducts,
-  getProductBySlug,
-  createProductReview,
-  getFeaturedReviews,
-  deleteProductReview,
-  getUserReviews,
-  createProduct,
-  updateProduct,
-  deleteProduct,
-  toggleReviewHelpful
+const asyncHandler = require('../middleware/asyncHandler');
+const { 
+  getProducts, getHomeProducts, getProductBySlug, createProductReview, 
+  getFeaturedReviews, deleteProductReview, getUserReviews, createProduct, 
+  updateProduct, deleteProduct, toggleReviewHelpful, searchProducts, 
+  getRandomProducts, getRecommendations, getPublicReviews, getFilterData, 
+  getProductVariants, getProductFullReviews, bulkUpdateProducts, 
+  getAllReviews, getStockLogs, manualRestock, toggleReviewVisibility, 
+  replyToReview, subscribeWaitlist 
 } = require('../controllers/productController');
-
-// Import your authentication middleware
-const { protect, admin, manager, hasPermission } = require('../middleware/authMiddleware');
+const { protect, hasPermission } = require('../middleware/authMiddleware');
 const cache = require('../middleware/cacheMiddleware');
 const validate = require('../middleware/validationMiddleware');
 const { productSchema } = require('../utils/validations/authValidation');
 
-/**
- * @route   GET /api/products
- * @desc    Fetch all products (used for shop and category filters)
- * @access  Public
- */
-router.get('/search', require('../controllers/productController').searchProducts);
+router.get('/search', asyncHandler(searchProducts));
+router.get('/', cache(300), asyncHandler(getProducts));
+router.get('/home', cache(120), asyncHandler(getHomeProducts));
+router.get('/random', asyncHandler(getRandomProducts));
+router.get('/recommendations', asyncHandler(getRecommendations));
+router.get('/reviews/featured', asyncHandler(getFeaturedReviews));
+router.get('/reviews/all', asyncHandler(getPublicReviews));
+router.get('/reviews/my-reviews', protect, asyncHandler(getUserReviews));
+router.get('/filters', asyncHandler(getFilterData));
+router.get('/:id/variants', asyncHandler(getProductVariants));
+router.get('/:id/reviews/full', asyncHandler(getProductFullReviews));
+router.get('/:slug', cache(300), asyncHandler(getProductBySlug));
 
-/**
- * @route   GET /api/products
- * @desc    Fetch all products (used for shop and category filters)
- * @access  Public
- */
-router.get('/', cache(300), getProducts);
-router.get('/home', cache(120), getHomeProducts);
-router.get('/random', require('../controllers/productController').getRandomProducts);
+router.post('/', protect, hasPermission('manage_products'), validate(productSchema), asyncHandler(createProduct));
+router.put('/bulk-update', protect, hasPermission('manage_products'), asyncHandler(bulkUpdateProducts));
+router.put('/:id', protect, hasPermission('manage_products'), asyncHandler(updateProduct));
+router.delete('/:id', protect, hasPermission('manage_products'), asyncHandler(deleteProduct));
+router.get('/admin/reviews', protect, hasPermission('manage_reviews'), asyncHandler(getAllReviews));
+router.get('/:id/stock-logs', protect, hasPermission('manage_products'), asyncHandler(getStockLogs));
+router.post('/:id/stock', protect, hasPermission('manage_products'), asyncHandler(manualRestock));
 
-/**
- * @route   GET /api/products/recommendations
- * @desc    Fetch AI recommendations
- * @access  Public
- */
-router.get('/recommendations', require('../controllers/productController').getRecommendations);
-
-/**
- * @route   GET /api/products/reviews/featured
- * @desc    Fetch latest reviews for home page
- * @access  Public
- */
-router.get('/reviews/featured', getFeaturedReviews);
-
-/**
- * @route   GET /api/products/reviews/all
- * @desc    Fetch ALL reviews for Reviews Page
- * @access  Public
- */
-router.get('/reviews/all', require('../controllers/productController').getPublicReviews);
-
-/**
- * @route   GET /api/products/reviews/my-reviews
- * @desc    Fetch logged-in user's reviews
- * @access  Private
- */
-router.get('/reviews/my-reviews', protect, getUserReviews);
-
-/**
- * @route   GET /api/products/:slug
- * @desc    Fetch single product by slug or ID
- * @access  Public
- */
-router.get('/filters', require('../controllers/productController').getFilterData);
-router.get('/:id/variants', require('../controllers/productController').getProductVariants);
-router.get('/:id/reviews/full', require('../controllers/productController').getProductFullReviews);
-router.get('/:slug', cache(300), getProductBySlug);
-
-// ADMIN / MANAGER ROUTES
-/**
- * @route   POST /api/products
- * @desc    Create a new product
- * @access  Private/Admin/Manager
- */
-router.post('/', protect, hasPermission('manage_products'), validate(productSchema), createProduct);
-
-/**
- * @route   PUT /api/products/bulk-update
- * @desc    Bulk update products (Price, Stock, Status)
- * @access  Private/Admin/Manager
- */
-router.put('/bulk-update', protect, hasPermission('manage_products'), require('../controllers/productController').bulkUpdateProducts);
-
-/**
- * @route   PUT /api/products/:id
- * @desc    Update a product
- * @access  Private/Admin/Manager
- */
-router.put('/:id', protect, hasPermission('manage_products'), updateProduct);
-
-/**
- * @route   DELETE /api/products/:id
- * @desc    Delete a product
- * @access  Private/Admin/Manager
- */
-router.delete('/:id', protect, hasPermission('manage_products'), deleteProduct);
-
-/**
- * @route   GET /api/products/admin/reviews
- * @desc    Get all reviews for moderation
- * @access  Private/Admin/Manager
- */
-router.get('/admin/reviews', protect, hasPermission('manage_reviews'), require('../controllers/productController').getAllReviews);
-
-/**
- * @route   GET /api/products/:id/stock-logs
- * @desc    Get stock history logs
- * @access  Private/Admin/Manager
- */
-router.get('/:id/stock-logs', protect, hasPermission('manage_products'), require('../controllers/productController').getStockLogs);
-router.post('/:id/stock', protect, hasPermission('manage_products'), require('../controllers/productController').manualRestock);
-
-// REVIEWS (User)
-/**
- * @route   POST /api/products/:id/reviews
- * @desc    Create a new review (Star rating, Comment, and Image)
- * @access  Private
- */
-router.post('/:id/reviews', protect, createProductReview);
-
-/**
- * @route   DELETE /api/products/:id/reviews/:reviewId
- * @desc    Delete a review
- * @access  Private
- */
-router.delete('/:id/reviews/:reviewId', protect, deleteProductReview);
-
-// CRITICAL: Export the router so index.js can use it
-router.put('/:id/reviews/:reviewId/toggle', protect, hasPermission('manage_reviews'), require('../controllers/productController').toggleReviewVisibility);
-router.put('/:id/reviews/:reviewId/reply', protect, hasPermission('manage_reviews'), require('../controllers/productController').replyToReview);
-router.put('/:id/reviews/:reviewId/helpful', protect, require('../controllers/productController').toggleReviewHelpful);
-router.post('/:id/waitlist', require('../controllers/productController').subscribeWaitlist);
+router.post('/:id/reviews', protect, asyncHandler(createProductReview));
+router.delete('/:id/reviews/:reviewId', protect, asyncHandler(deleteProductReview));
+router.put('/:id/reviews/:reviewId/toggle', protect, hasPermission('manage_reviews'), asyncHandler(toggleReviewVisibility));
+router.put('/:id/reviews/:reviewId/reply', protect, hasPermission('manage_reviews'), asyncHandler(replyToReview));
+router.put('/:id/reviews/:reviewId/helpful', protect, asyncHandler(toggleReviewHelpful));
+router.post('/:id/waitlist', asyncHandler(subscribeWaitlist));
 
 module.exports = router;

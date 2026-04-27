@@ -149,15 +149,6 @@ exports.logoutUser = async (req, res) => {
 
 // --- 3.5 GET USER PROFILE (SYNC) ---
 exports.getUserProfile = async (req, res) => {
-  try {
-    // Populate cart and wishlist to ensure frontend gets full objects
-    // Note: If you want just IDs in store, don't populate. 
-    // Usually store keeps IDs or minimal info. 
-    // For now, let's just return the user doc as is, or with populated wishlist IDs if they are objects.
-
-    // Actually, cart logic in frontend likely expects objects if populated, or IDs.
-    // Let's stick to returning what login returns, but fresh.
-    // Populate wishlist to detect and remove dead items
     const user = await User.findById(req.user._id).populate('wishlist');
 
     if (!user) {
@@ -168,13 +159,12 @@ exports.getUserProfile = async (req, res) => {
     const Product = require('../models/Product');
     const validWishlist = user.wishlist.filter(item => item !== null);
     
-    // Self-Healing Cart: Fill in missing data for any corrupted items
+    // Self-Healing Cart
     let cartModified = false;
     const healedCart = [];
     
     for (let item of user.cart) {
-        if (!item.product) continue; // Skip dead products
-        
+        if (!item.product) continue;
         if (!item.name || !item.price || !item.image) {
             const fullProduct = await Product.findById(item.product);
             if (fullProduct) {
@@ -217,15 +207,12 @@ exports.getUserProfile = async (req, res) => {
       cart: healedCart,
       savedForLater: healedSaved,
       phone: user.phone,
-      wishlist: validWishlist.map(p => p._id), // Only valid IDs
+      wishlist: validWishlist.map(p => p._id),
       referralCode: user.referralCode,
       referralEarnings: user.referralEarnings,
       loyaltyPoints: user.loyaltyPoints,
-      token: generateToken(user._id), // Optional: refresh token
+      token: generateToken(user._id),
     });
-  } catch (error) {
-    res.status(500).json({ message: "Profile fetch failed" });
-  }
 };
 
 // --- 4. FORGOT PASSWORD: SEND OTP ---

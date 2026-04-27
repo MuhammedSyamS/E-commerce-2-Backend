@@ -5,14 +5,12 @@ const StockLog = require('../models/StockLog');
  * Logs a stock change to the database.
  * @param {Object} params - The log parameters.
  */
-const logStockChange = async ({ productId, variant, oldStock, newStock, reason, referenceId, adminId, note }) => {
+const logStockChange = async ({ productId, variant, oldStock, newStock, reason, referenceId, adminId, note }, options = {}) => {
     try {
         const change = newStock - oldStock;
-
-        // Don't log zero changes unless explicit
         if (change === 0 && reason !== 'Admin Adjustment') return;
 
-        await StockLog.create({
+        await StockLog.create([{
             product: productId,
             variant,
             previousStock: oldStock,
@@ -22,40 +20,37 @@ const logStockChange = async ({ productId, variant, oldStock, newStock, reason, 
             referenceId,
             adminUser: adminId,
             description: note
-        });
+        }], options);
 
     } catch (error) {
         console.error("❌ Stock Logging Failed:", error.message);
     }
 };
 
-/**
- * Adjusts stock for a product or variant and logs the change.
- * @param {string} productId 
- * @param {Object} variant - { size, color } (optional)
- * @param {number} qtyChange - Positive to add, negative to subtract
- * @param {string} reason 
- * @param {string} referenceId 
- * @param {string} adminId 
- * @param {string} note 
- */
-const adjustStock = async (productId, variant, qtyChange, reason, referenceId = null, adminId = null, note = "") => {
-    const product = await Product.findById(productId);
+const adjustStock = async (productId, variant, qtyChange, reason, referenceId = null, adminId = null, note = "", options = {}) => {
+    const product = await Product.findById(productId).session(options.session || null);
     if (!product) throw new Error("Product not found");
 
     const oldTotalStock = product.countInStock || 0;
 
-    if (variant && variant.size && variant.color) {
-        const vIndex = product.variants.findIndex(v => v.size === variant.size && v.color === variant.color);
+    if (variant && (variant.size || variant.color)) {
+        const vIndex = product.variants.findIndex(v => 
+            (variant.size ? v.size === variant.size : true) && 
+            (variant.color ? v.color === variant.color : true)
+        );
+        
         if (vIndex === -1) throw new Error("Variant not found");
 
         const oldVariantStock = product.variants[vIndex].stock || 0;
         product.variants[vIndex].stock += qtyChange;
-        product.countInStock += qtyChange; // Keep main stock in sync
+        
+        if (product.variants[vIndex].stock < 0) {
+            throw new Error(`Insufficient stock for ${product.name} (${variant.size || ''} ${variant.color || ''})`);
+        }
 
-        await product.save();
+        product.countInStock += qtyChange;
+        await product.save(options);
 
-        // Log variant-specific change
         await logStockChange({
             productId,
             variant,
@@ -64,12 +59,14 @@ const adjustStock = async (productId, variant, qtyChange, reason, referenceId = 
             reason,
             referenceId,
             adminId,
-            note: note || `Systematic adjustment for ${variant.size}/${variant.color}`
-        });
+            note: note || `Systematic adjustment for ${variant.size || ''}/${variant.color || ''}`
+        }, options);
     } else {
-        // Main stock adjustment
         product.countInStock += qtyChange;
-        await product.save();
+        if (product.countInStock < 0) {
+            throw new Error(`Insufficient stock for ${product.name}`);
+        }
+        await product.save(options);
 
         await logStockChange({
             productId,
@@ -79,7 +76,7 @@ const adjustStock = async (productId, variant, qtyChange, reason, referenceId = 
             referenceId,
             adminId,
             note
-        });
+        }, options);
     }
 
     return product;

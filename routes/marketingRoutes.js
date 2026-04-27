@@ -20,28 +20,30 @@ const {
     toggleFlashSaleStatus
 } = require('../controllers/marketingController');
 
+const asyncHandler = require('../middleware/asyncHandler');
+
 // --- COUPONS ---
-router.post('/verify-coupon', verifyCoupon);
-router.get('/coupons', protect, admin, getCoupons);
-router.post('/coupons', protect, admin, createCoupon);
-router.put('/coupons/:id/toggle', protect, admin, toggleCouponStatus);
-router.put('/coupons/:id', protect, admin, updateCoupon);
-router.delete('/coupons/:id', protect, admin, deleteCoupon);
+router.post('/verify-coupon', asyncHandler(verifyCoupon));
+router.get('/coupons', protect, admin, asyncHandler(getCoupons));
+router.post('/coupons', protect, admin, asyncHandler(createCoupon));
+router.put('/coupons/:id/toggle', protect, admin, asyncHandler(toggleCouponStatus));
+router.put('/coupons/:id', protect, admin, asyncHandler(updateCoupon));
+router.delete('/coupons/:id', protect, admin, asyncHandler(deleteCoupon));
 
 // --- NEWSLETTER ---
-router.post('/subscribe', subscribeNewsletter);
+router.post('/subscribe', asyncHandler(subscribeNewsletter));
 
 // --- BROADCASTS ---
-router.get('/broadcasts', protect, admin, getBroadcasts);
-router.post('/broadcasts', protect, admin, createBroadcast);
+router.get('/broadcasts', protect, admin, asyncHandler(getBroadcasts));
+router.post('/broadcasts', protect, admin, asyncHandler(createBroadcast));
 
 // --- FLASH SALES ---
-router.get('/flash-sale', getActiveFlashSale); // Public
-router.get('/flash-sales', protect, admin, getAllFlashSales);
-router.post('/flash-sales', protect, admin, createFlashSale);
-router.put('/flash-sales/:id/toggle', protect, admin, toggleFlashSaleStatus);
-router.put('/flash-sales/:id', protect, admin, updateFlashSale);
-router.delete('/flash-sales/:id', protect, admin, deleteFlashSale);
-router.get('/check-flash/:productId', checkProductFlashSale);
+router.get('/flash-sale', asyncHandler(getActiveFlashSale)); // Public
+router.get('/flash-sales', protect, admin, asyncHandler(getAllFlashSales));
+router.post('/flash-sales', protect, admin, asyncHandler(createFlashSale));
+router.put('/flash-sales/:id/toggle', protect, admin, asyncHandler(toggleFlashSaleStatus));
+router.put('/flash-sales/:id', protect, admin, asyncHandler(updateFlashSale));
+router.delete('/flash-sales/:id', protect, admin, asyncHandler(deleteFlashSale));
+router.get('/check-flash/:productId', asyncHandler(checkProductFlashSale));
 
 module.exports = router;

@@ -38,11 +38,11 @@ const createLimiter = (windowMinutes, maxRequests, message) => {
 
 // --- ENTERPRISE LIMITS ---
 const loginLimiter = createLimiter(1, 5, 'Too many login attempts. Please wait 1 minute.');
-const registerLimiter = createLimiter(1, 3, 'Too many registration attempts. Please wait 1 minute.');
-const otpLimiter = createLimiter(10, 3, 'Too many OTP requests. Please wait 10 minutes.');
-const orderLimiter = createLimiter(1, 20, 'Order velocity too high. Please wait.');
-const paymentLimiter = createLimiter(1, 10, 'Payment attempts throttled. Please wait.');
-const globalApiLimiter = createLimiter(1, 500, 'Global API rate limit reached.');
+const registerLimiter = createLimiter(5, 3, 'Too many registration attempts. Please wait 5 minutes.');
+const otpLimiter = createLimiter(15, 3, 'Too many OTP requests. Please wait 15 minutes.');
+const orderLimiter = createLimiter(1, 10, 'Order velocity too high. Please wait.');
+const paymentLimiter = createLimiter(1, 5, 'Payment attempts throttled. Please wait.');
+const globalApiLimiter = createLimiter(1, 150, 'Global API rate limit reached.');
 
 module.exports = {
   loginLimiter,
